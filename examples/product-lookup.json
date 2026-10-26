@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "origin": "https://www.demoblaze.com",
+  "allowed_origins": ["https://api.demoblaze.com"],
+  "name": "demoblaze",
+  "tools": [
+    {
+      "id": "product_detail",
+      "goal": "Look up one product by its exact name",
+      "effect": "read",
+      "input_fields": ["product_name"]
+    }
+  ]
+}

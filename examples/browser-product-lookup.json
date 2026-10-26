@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "origin": "https://example.com",
+  "name": "browser-products",
+  "tools": [
+    {
+      "id": "browser_detail",
+      "goal": "Consultar la ficha de un producto renderizada por JavaScript",
+      "effect": "read",
+      "execution": "browser",
+      "input_fields": ["product_name"],
+      "extract": {
+        "mode": "object",
+        "root": "#browser-detail",
+        "fields": {
+          "id": { "attr": "data-id" },
+          "name": { "selector": "h1" },
+          "price": { "selector": ".price" }
+        }
+      }
+    }
+  ]
+}

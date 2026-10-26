@@ -1,0 +1,75 @@
+# Aprender y reutilizar flujos de navegador
+
+AnyWeb puede convertir demostraciones realizadas con `explore` en una receta de navegador parametrizada y exponerla mediante MCP. Sirve para lecturas cuyo resultado depende de JavaScript o del estado de la página y no se obtiene reproduciendo las peticiones HTTP observadas.
+
+## Recorrido
+
+```text
+Declaración con execution: browser + extracción DOM
+  → dos demostraciones train y una eval mediante explore
+  → inferencia de acciones y parámetros usando solo train
+  → reproducción de los tres casos en navegadores nuevos
+  → comparación con los resultados DOM capturados
+  → review con una entrada elegida por el usuario
+  → package y llamada MCP
+```
+
+El resultado es un programa declarativo, sin código JavaScript generado ni un agente que vuelva a decidir cada clic. El motor HTTP sigue siendo el predeterminado; no existe cambio automático de motor cuando una ejecución falla.
+
+## Preparación
+
+Requiere Node 24, `npm ci` y `npx playwright install chromium`. No se añadió otra dependencia de navegador.
+
+Usa [el ejemplo de declaración](../examples/browser-product-lookup.json) como plantilla. Su dominio y selectores son ilustrativos: sustituye el origen y la extracción por los del sitio autorizado. Si ya existe una declaración para ese origen, edita su herramienta para añadir `"execution": "browser"` y `extract`; `init` preserva los archivos existentes.
+
+```bash
+node src/cli.mjs init --file examples/browser-product-lookup.json
+node src/cli.mjs explore start --site https://example.com --start-url https://example.com --headed
+```
+
+Delimita una demostración y empieza siempre por `explore open`, para que la receta pueda reproducirse desde un contexto nuevo:
+
+```bash
+node src/cli.mjs explore mark --site https://example.com --tool browser_detail --role train --input '{"product_name":"Laptop Pro"}'
+node src/cli.mjs explore open --site https://example.com --url https://example.com
+```
+
+Usa `explore type`, `click` y `press` con los refs del snapshot actual. Al terminar, ejecuta `explore mark end --site https://example.com`. Repite con otra entrada `train` y una tercera `eval`, manteniendo la misma secuencia funcional. Los clics manuales en la ventana no se registran como acciones del programa: utiliza los comandos de exploración.
+
+```bash
+node src/cli.mjs propose --site https://example.com
+node src/cli.mjs explore stop --site https://example.com
+node src/cli.mjs review --site https://example.com
+node src/cli.mjs package --site https://example.com
+```
+
+Las demostraciones viven en el daemon: ejecuta `propose` antes de detenerlo. `review` muestra las acciones aprendidas y las rutas de red que se aprobarían. Después de `package`, registra el fragmento `.mcp.json` indicado por el comando.
+
+## Qué aprende y comprueba
+
+- Navegaciones a URLs constantes; escritura de texto; clics por ID, test ID, etiqueta o nombre accesible; teclas acotadas.
+- Si el texto escrito o el nombre del elemento pulsado cambia exactamente con una entrada entre ambas demostraciones, lo convierte en un parámetro. Rechaza diferencias ambiguas, transformaciones no representadas y secuencias inconsistentes.
+- Cada entrada debe participar en una acción y aparecer en algún campo del resultado. Los campos presentes y no vacíos en ambos ejemplos pasan a ser obligatorios.
+- `propose` compara exactamente la salida de cada reproducción con el DOM capturado en esa demostración. El caso `eval` no se usa para aprender acciones, parámetros ni permisos de red.
+- En ejecución comprueba relación entre entradas y salida, campos requeridos y selectores no ambiguos. Esto detecta ciertas roturas; no demuestra por sí solo que un precio o una fecha sigan siendo correctos. Los sitios con valores variables pueden necesitar un contrato de evaluación distinto y actualmente fallar en la comparación exacta.
+
+## Alcance y límites
+
+Esta versión admite lecturas con peticiones GET a las rutas y orígenes observados en entrenamiento y declarados en el sitio. GET no demuestra que un endpoint carezca de efectos: hay que revisar su significado antes de aprobarlo. No se admiten POST, escrituras, descargas, redirecciones, WebSocket, service workers, ventanas nuevas ni diálogos. Las peticiones no revisadas abortan el flujo. Las redirecciones se rechazan antes de que Chromium las siga.
+
+Las sesiones se cargan desde el estado guardado localmente con `session login`; cada invocación crea y cierra un contexto nuevo. No se aceptan cabeceras de sesión manuales en este motor ni se enseñan contraseñas mediante acciones de escritura. El estado generado durante una invocación no se persiste. Las aplicaciones dependientes de IndexedDB o perfiles especiales pueden requerir un conector dedicado.
+
+Límites: 32 acciones, 128 rutas revisadas, 200 peticiones y 30 segundos por ejecución después de lanzar Chromium. La creación del navegador tiene su propio timeout de 15 segundos. No hay reintento automático, reparación de selectores ni búsqueda autónoma de la tarea.
+
+`package` devuelve `runtime: local_browser_runtime`. Genera una instantánea de la receta aprobada y un lanzador MCP que usa este checkout, Playwright y Chromium instalados. No es un paquete portable: al mover o borrar el checkout deja de funcionar, y las actualizaciones del runtime local afectan a estos lanzadores. Esta decisión permite reutilizar el motor instalado sin incluir silenciosamente un navegador dentro de un bundle HTTP. Los sitios exclusivamente HTTP conservan `runtime: standalone_http`.
+
+## Evidencia reproducible
+
+```bash
+node --test test/browser.test.mjs test/browser-e2e.test.mjs
+npm test
+```
+
+La prueba integral usa una página local cuyo catálogo y ficha se calculan en JavaScript, sin endpoints de búsqueda/detalle. Enseña dos productos, evalúa un tercero y consulta un cuarto desde un cliente MCP. También comprueba que no se empaqueten herramientas pendientes de revisión. Las pruebas negativas cubren evaluación incorrecta, entrada inválida, campo desaparecido, sesión ausente y bloqueo de escrituras, rutas no revisadas y redirecciones. Es evidencia local, no una certificación de compatibilidad con sitios externos.
+
+Referencias de implementación: [routing y service workers de Playwright](https://playwright.dev/docs/api/class-browsercontext#browser-context-route), [control de redirecciones en Route.fetch](https://playwright.dev/docs/api/class-route#route-fetch).

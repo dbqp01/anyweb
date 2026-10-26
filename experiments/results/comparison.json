@@ -1,0 +1,42 @@
+{
+  "learned": {
+    "correct": 15,
+    "total": 15,
+    "learning_ms": 1099.3827999999999,
+    "median_ms": 48.42820000000006,
+    "mean_ms": 51.22112666666662,
+    "requests_per_execution": [
+      2
+    ]
+  },
+  "browser": {
+    "correct": 3,
+    "total": 3,
+    "tool_operations": 23,
+    "blind": false,
+    "timing_ms": null,
+    "cost_usd": null
+  },
+  "negative": {
+    "passed": true,
+    "error": "NO_MATCH"
+  },
+  "consistent_corruption": {
+    "runner_reported_success": true,
+    "passed": false,
+    "expected": {
+      "id": "p3",
+      "name": "Phone Max",
+      "price": 800,
+      "description": "Max phone"
+    },
+    "actual": {
+      "id": "p3",
+      "name": "Phone Max",
+      "price": 900,
+      "description": "Max phone"
+    }
+  },
+  "speedup": null,
+  "conclusion": "Fixture correctness comparison only; no measured agent latency/cost ratio or autonomous learning claim."
+}

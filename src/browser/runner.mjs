@@ -4,6 +4,7 @@ import { readPolicySchema, readWorkflowInput } from '../artifact/recipe.mjs';
 import { extractHtml } from '../artifact/html.mjs';
 import { parse, WorkflowError } from '../artifact/errors.mjs';
 import { redactUrl } from '../redact.mjs';
+import { isChallenge } from '../net/challenge.mjs';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const resolve = (binding, input) => binding.kind === 'input' ? input[binding.field] : binding.value;
@@ -57,14 +58,47 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
     if (!stepReviewed(policy, step)) throw new WorkflowError('UNREVIEWED_QUERY', 400);
   }
 
+  // Playwright's own Chromium first; when that build is missing (a newer Playwright than the downloaded browsers),
+  // fall back to the Chrome or Edge already installed on the machine instead of failing.
+  async function launch() {
+    for (const channel of [undefined, 'chrome', 'msedge']) {
+      try { return await chromium.launch({ headless: true, timeout: 15000, ...(channel ? { channel } : {}) }); }
+      catch (error) {
+        if (error instanceof WorkflowError) throw error; // PLAYWRIGHT_REQUIRED from the packaged lazy import
+        const absent = /Executable doesn't exist|playwright install|is not found|not installed/i.test(error?.message ?? '');
+        if (!absent) throw new WorkflowError('BROWSER_LAUNCH_FAILED', 503, { transient: true });
+      }
+    }
+    throw new WorkflowError('BROWSER_NOT_INSTALLED', 503, {
+      instruction: 'No usable browser: the Chromium build this AnyWeb installation expects is missing and neither Chrome nor Edge is installed. Ask the person to run "npx playwright install chromium" next to the AnyWeb installation, then call this tool again.',
+    });
+  }
+
+  // The workflow only reads, so a run that died from a crash, a failed launch or a network blip is safe to repeat once.
   return async raw => {
     const input = parse(readWorkflowInput(recipe), raw);
-    const browser = await chromium.launch({ headless: true, timeout: 15000 });
-    let failure, index = 0;
+    try { return await runOnce(input); }
+    catch (error) {
+      if (!error.transient) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return await runOnce(input);
+    }
+  };
+
+  async function runOnce(input) {
+    let browser;
+    browser = await launch();
+    let failure, index = 0, closing = false;
+    const fail = error => { failure ??= error; };
+    browser.on('disconnected', () => { if (!closing) fail(new WorkflowError('BROWSER_CRASHED', 503, { transient: true })); });
     const timer = setTimeout(() => {
-      failure ??= new WorkflowError('BROWSER_TIMEOUT', 504);
+      fail(new WorkflowError('BROWSER_TIMEOUT', 504));
+      closing = true;
       void browser.close().catch(() => {});
     }, 30000);
+    const challenged = async page => {
+      if (isChallenge({ html: await page.content().catch(() => '') })) fail(new WorkflowError('CHALLENGE_REQUIRED', 403, { site: new URL(page.url()).origin }));
+    };
     try {
       const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false,
         ...(session ? { storageState: { cookies: session.cookies ?? [], origins: session.origins ?? [] } } : {}) });
@@ -72,7 +106,7 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
       context.setDefaultNavigationTimeout(10000);
       const calls = [];
       let requests = 0;
-      const block = code => { failure ??= new WorkflowError(code, 422); };
+      const block = code => fail(new WorkflowError(code, 422));
       await context.routeWebSocket('**/*', async socket => { block('BROWSER_WEBSOCKET_UNSUPPORTED'); await socket.close(); });
       await context.route('**/*', async route => {
         let response;
@@ -92,11 +126,16 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
           const status = response.status();
           calls.push({ method: request.method(), url: redactUrl(url.href), status });
           if (status >= 300 && status < 400) { block('BROWSER_REDIRECT_UNSUPPORTED'); return await route.abort(); }
+          if (status >= 400 && isChallenge({ status, headers: new Headers(response.headers()), html: await response.text().catch(() => '') })) {
+            fail(new WorkflowError('CHALLENGE_REQUIRED', 403, { site: url.origin }));
+            return await route.abort();
+          }
           if (status === 401 || status === 403) { block('REAUTH_REQUIRED'); return await route.abort(); }
+          if (status === 429 || status >= 500) { fail(new WorkflowError('UPSTREAM_UNAVAILABLE', 502, { transient: true })); return await route.abort(); }
           if (status >= 400) { block('UPSTREAM_CHANGED'); return await route.abort(); }
           await route.fulfill({ response });
         } catch {
-          block('UPSTREAM_UNAVAILABLE');
+          fail(new WorkflowError('UPSTREAM_UNAVAILABLE', 502, { transient: true }));
           await route.abort().catch(() => {});
         } finally { await response?.dispose().catch(() => {}); }
       });
@@ -115,6 +154,7 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
           if (!policy) throw new WorkflowError('UNREVIEWED_OPERATION', 400);
           if (!queryAllowed(policy, url, input)) throw new WorkflowError('UNREVIEWED_QUERY', 400);
           await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+          await challenged(page);
         }
         else if (step.action === 'press') await page.keyboard.press(step.key);
         else {
@@ -143,7 +183,11 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
       if (failure) throw failure;
-      if (!browserResultMatches(recipe, data, input)) throw new WorkflowError('VERIFICATION_FAILED', 422);
+      if (!browserResultMatches(recipe, data, input)) {
+        // A challenge injected after load explains the miss better than VERIFICATION_FAILED.
+        await challenged(page);
+        throw failure ?? new WorkflowError('VERIFICATION_FAILED', 422);
+      }
       return { data, evidence: { transport: 'browser', workflow: recipe.id, effect: 'read', observed_at: new Date().toISOString(),
         steps_completed: recipe.steps.length, calls, verification: recipe.checks, discovery: recipe.discovery, autonomous_discovery: false } };
     } catch (error) {
@@ -152,7 +196,8 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
       throw result;
     } finally {
       clearTimeout(timer);
-      await browser.close();
+      closing = true;
+      await browser.close().catch(() => {});
     }
-  };
+  }
 }

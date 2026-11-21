@@ -28,7 +28,7 @@
     "docs/temu.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node test/run.mjs",
     "test:live": "node --test test/live/demoblaze.test.mjs"
   },
   "dependencies": {

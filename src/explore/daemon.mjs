@@ -1,3 +1,4 @@
+import childProcess from 'node:child_process';
 import { chromium } from 'playwright';
 import { createAdaptorServer } from '@hono/node-server';
 import { randomBytes } from 'node:crypto';
@@ -11,6 +12,13 @@ import { createBudget } from './budget.mjs';
 import { createMarks } from './marks.mjs';
 import { createLogger } from '../log.mjs';
 import { readSession } from '../session.mjs';
+
+// The daemon runs detached (no console), so on Windows every console child Playwright spawns (Chromium)
+// would open a visible cmd window; Playwright does not pass windowsHide, so default it here.
+const spawn = childProcess.spawn;
+childProcess.spawn = (command, args, options) => Array.isArray(args)
+  ? spawn(command, args, { windowsHide: true, ...options })
+  : spawn(command, { windowsHide: true, ...args });
 
 const log = createLogger('explore');
 const site = process.env.WEB2API_SITE;

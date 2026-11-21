@@ -86,12 +86,20 @@ export function createExploreApp({ page, recorder, token, site, startedAt, actio
     const description = marks.open()?.execution === 'browser' ? await describeLocator(page.getByRef(ref)) : null;
     try {
       const locator = page.getByRef(ref);
+      const type = (await locator.getAttribute('type', { timeout: 5000 }) ?? '').toLowerCase();
+      const autocomplete = (await locator.getAttribute('autocomplete', { timeout: 5000 }) ?? '').toLowerCase();
+      if (type === 'password' || /(?:^|\s)(?:current-password|new-password|one-time-code)(?:\s|$)/.test(autocomplete)) {
+        throw new WorkflowError('BROWSER_SECRET_INPUT', 400);
+      }
       // fill() only fires `input`; SPAs usually listen for keyup/keydown.
       await locator.fill('', { timeout: 5000 });
       await locator.pressSequentially(text, { timeout: 15000, delay: 5 });
       // Typing can detach the field (suggestion dropdowns re-render it); Enter goes to whatever has focus.
       if (submit) await page.keyboard.press('Enter');
-    } catch (error) { throw new WorkflowError('STALE_REF', 409, { detail: error.message }); }
+    } catch (error) {
+      if (error instanceof WorkflowError) throw error;
+      throw new WorkflowError('STALE_REF', 409, { detail: error.message });
+    }
     if (description) marks.record({ action: 'type', locator: description, text, submit: !!submit });
     actions.count++;
     await settle();

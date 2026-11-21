@@ -63,10 +63,10 @@ sessionCommand.command('login').description('Log in once in a visible browser an
   .requiredOption('--site <origin>').option('--session <name>', 'session name', 'default').option('--start-url <url>')
   .action(options => run(() => session.login(options)));
 sessionCommand.command('status').description('Report whether a saved session exists')
-  .requiredOption('--site <origin>')
+  .requiredOption('--site <origin>').option('--session <name>', 'session name', 'default')
   .action(options => run(() => session.status(options)));
 sessionCommand.command('clear').description('Delete the saved session')
-  .requiredOption('--site <origin>')
+  .requiredOption('--site <origin>').option('--session <name>', 'session name', 'default')
   .action(options => run(() => session.clear(options)));
 
 const temuCommand = program.command('temu').description('Read-only Temu product connector');
@@ -88,6 +88,9 @@ whatsappCommand.command('logout').description('Unlink the device and delete loca
 whatsappCommand.command('package').description('Bundle the connector into a standalone MCP server')
   .option('--auth-dir <dir>')
   .action(options => run(() => packageWhatsApp(options)));
+
+program.command('mcp').description('Start the AnyWeb factory MCP server over stdio')
+  .action(async () => (await import('./mcp/factory.mjs')).serveFactory());
 
 program.command('init').description('Import a validated site declaration without overwriting existing work')
   .requiredOption('--file <path>', 'JSON declaration with origin and tools')

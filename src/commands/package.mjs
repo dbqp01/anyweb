@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { WorkflowError } from '../artifact/errors.mjs';
+import { assertReviewed } from '../artifact/review-integrity.mjs';
+import { writeNotices } from '../artifact/licenses.mjs';
 import { home, loadSite, siteDir } from '../artifact/site.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -16,13 +18,15 @@ function originOf(site) {
   return origin;
 }
 
-function readme(site, bundle, snippet, browser) {
+function readme(site, bundle, snippet, browser, notices) {
   const tools = site.tools.map(tool => `- **${tool.id}** (${tool.effect}): ${tool.goal}\n  inputs: ${tool.input_fields.join(', ')}`).join('\n');
   return `# ${site.name} — AnyWeb MCP
 
 Generated from ${site.origin} on ${new Date().toISOString()}.
 
-${browser ? 'This package uses the local AnyWeb runtime, Playwright and its installed Chromium. Keep this checkout and its dependencies available. It is not a standalone HTTP bundle.' : 'Standalone HTTP bundle; no browser runtime required.'}
+${browser ? 'This package uses the local AnyWeb runtime, Playwright and its installed Chromium. Keep the AnyWeb installation and its dependencies available and run `npx playwright install chromium` once. It is not a standalone HTTP bundle.' : 'Standalone HTTP bundle; no browser runtime required.'}
+
+Third-party license texts for the dependencies bundled into the server are in "${notices}".
 
 ## Tools
 
@@ -44,25 +48,52 @@ export async function packageSite({ site: target }, env = process.env) {
   const site = await loadSite(origin, env);
   const unapproved = site.tools.filter(tool => tool.status !== 'approved' || tool.verification.status !== 'passed');
   if (unapproved.length) throw new WorkflowError('TOOLS_NOT_APPROVED', 422, { detail: unapproved.map(tool => tool.id) });
+  for (const tool of site.tools) assertReviewed(tool);
 
   const dist = join(siteDir(origin, env), 'dist');
   const bundle = join(dist, `${site.name}.mjs`);
   const snippetFile = join(dist, '.mcp.json');
   const evidenceFile = join(dist, 'evidence.json');
   const readmeFile = join(dist, 'README.md');
+  const noticesFile = join(dist, 'THIRD_PARTY_NOTICES.txt');
   await mkdir(dist, { recursive: true });
 
   const browser = site.tools.some(tool => tool.recipe.execution === 'browser');
+  const bundleOptions = {
+    bundle: true, platform: 'node', format: 'esm', target: 'node24', absWorkingDir: ROOT,
+    // Cheerio's CJS dependencies require Node builtins at runtime; ESM output needs a real require.
+    banner: { js: '#!/usr/bin/env node\nimport { createRequire as web2apiRequire } from "node:module"; const require = web2apiRequire(import.meta.url);' },
+    legalComments: 'eof', logLevel: 'silent', metafile: true,
+  };
+  let result;
   if (browser) {
-    const entry = pathToFileURL(join(ROOT, 'src', 'mcp', 'browser-entry.mjs')).href;
-    await writeFile(bundle, `#!/usr/bin/env node\nimport { serveBrowserSite } from ${JSON.stringify(entry)};\nawait serveBrowserSite(${JSON.stringify(site)});\n`);
+    // Resolve once from the installed CLI so the bundle does not depend on WEB2API_HOME or the checkout; fall back
+    // to a bare specifier when Playwright is absent. The proxy keeps the import lazy so the failure is coded.
+    let playwright = 'playwright';
+    try { playwright = import.meta.resolve('playwright'); } catch {}
+    const lazyPlaywright = {
+      name: 'lazy-playwright',
+      setup(context) {
+        context.onResolve({ filter: /^playwright$/ }, args => args.kind === 'dynamic-import'
+          ? { path: 'playwright', external: true }
+          : { path: 'playwright', namespace: 'anyweb-lazy' });
+        context.onLoad({ filter: /.*/, namespace: 'anyweb-lazy' }, () => ({
+          contents: `import { WorkflowError } from ${JSON.stringify(join(ROOT, 'src', 'artifact', 'errors.mjs'))};
+const entry = ${JSON.stringify(playwright)};
+export const chromium = new Proxy({}, { get: (_, method) => (...args) => import(entry)
+  .then(module => module.chromium[method](...args), () => { throw new WorkflowError('PLAYWRIGHT_REQUIRED', 501); }) });`,
+          resolveDir: ROOT,
+        }));
+      },
+    };
+    result = await build({
+      ...bundleOptions, outfile: bundle, plugins: [lazyPlaywright],
+      stdin: { contents: `import { serveBrowserSite } from './src/mcp/browser-entry.mjs';\nawait serveBrowserSite(${JSON.stringify(site)});`, resolveDir: ROOT, sourcefile: 'anyweb-browser.mjs', loader: 'js' },
+    });
   } else {
-    const result = await build({
-      entryPoints: [join(ROOT, 'src', 'mcp', 'entry.mjs')], outfile: bundle, bundle: true, platform: 'node',
-      format: 'esm', target: 'node24', define: { __WEB2API_SITE__: JSON.stringify(JSON.stringify(site)) },
-      // Cheerio's CJS dependencies require Node builtins at runtime; ESM output needs a real require.
-      banner: { js: '#!/usr/bin/env node\nimport { createRequire as web2apiRequire } from "node:module"; const require = web2apiRequire(import.meta.url);' },
-      legalComments: 'none', logLevel: 'silent', metafile: true,
+    result = await build({
+      ...bundleOptions, entryPoints: [join(ROOT, 'src', 'mcp', 'entry.mjs')], outfile: bundle,
+      define: { __WEB2API_SITE__: JSON.stringify(JSON.stringify(site)) },
     });
     const inputs = Object.keys(result.metafile.inputs);
     if (inputs.some(input => /playwright/i.test(input))) throw new WorkflowError('BUNDLE_INVALID', 500, { detail: 'playwright' });
@@ -70,10 +101,12 @@ export async function packageSite({ site: target }, env = process.env) {
 
   const code = await readFile(bundle, 'utf8');
   if (!browser && /from\s+["']playwright|require\(["']playwright/i.test(code)) throw new WorkflowError('BUNDLE_INVALID', 500, { detail: 'playwright' });
+  if (browser && !code.includes('PLAYWRIGHT_REQUIRED')) throw new WorkflowError('BUNDLE_INVALID', 500, { detail: 'playwright' });
   await chmod(bundle, 0o755).catch(() => {});
+  const notices = await writeNotices({ file: noticesFile, inputs: Object.keys(result.metafile.inputs), root: ROOT, bundle });
 
-  const snippet = { mcpServers: { [`anyweb-${site.name}`]: { command: 'node', args: [bundle],
-    ...(browser ? { env: { WEB2API_HOME: home(env) } } : {}) } } };
+  const snippet = { mcpServers: { [`anyweb-${site.name}`]: { command: process.execPath, args: [bundle],
+    env: { WEB2API_HOME: home(env) } } } };
   await writeFile(snippetFile, `${JSON.stringify(snippet, null, 2)}\n`);
   const evidence = {
     site: origin, name: site.name, engine_hash: site.evidence.engine_hash, compiled_at: site.evidence.compiled_at,
@@ -85,7 +118,7 @@ export async function packageSite({ site: target }, env = process.env) {
     })),
   };
   await writeFile(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`);
-  await writeFile(readmeFile, readme(site, bundle, snippetFile, browser));
+  await writeFile(readmeFile, readme(site, bundle, snippetFile, browser, notices));
 
-  return { site: origin, runtime: evidence.runtime, bundle, snippet: snippetFile, evidence: evidenceFile, readme: readmeFile, bytes: evidence.bundle.bytes, tools: site.tools.map(tool => tool.id) };
+  return { site: origin, runtime: evidence.runtime, bundle, snippet: snippetFile, evidence: evidenceFile, readme: readmeFile, notices, bytes: evidence.bundle.bytes, tools: site.tools.map(tool => tool.id) };
 }

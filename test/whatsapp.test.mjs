@@ -41,10 +41,14 @@ test('packages a standalone read-only MCP and reports missing pairing', { timeou
   const listed = await client.listTools();
   assert.deepEqual(listed.tools.map(tool => tool.name).sort(), tools);
   assert.equal(listed.tools.every(tool => tool.annotations?.readOnlyHint === true), true);
+  assert.equal(listed.tools.every(tool => tool.annotations?.openWorldHint === true), true);
 
   const status = await client.callTool({ name: 'whatsapp_status', arguments: {} });
   assert.ok(!status.isError, JSON.stringify(status));
-  assert.equal(JSON.parse(status.content[0].text).data.state, 'awaiting_pairing');
+  const statusResult = JSON.parse(status.content[0].text);
+  assert.equal(statusResult.data.state, 'awaiting_pairing');
+  assert.match(statusResult.evidence.limits.join(' '), /persisted.*store\.json/i);
+  assert.doesNotMatch(statusResult.evidence.limits.join(' '), /resets on restart/i);
 
   const chats = await client.callTool({ name: 'whatsapp_list_chats', arguments: {} });
   assert.equal(chats.isError, true);

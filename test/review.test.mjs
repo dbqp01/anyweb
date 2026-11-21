@@ -48,7 +48,15 @@ test('review executes a proposed tool live and persists approval without raw inp
   assert.equal(site.tools[0].verification.status, 'passed');
   assert.ok(site.tools[0].reviewed_at);
   assert.match(site.tools[0].verification.hashes.review, /^[a-f0-9]{64}$/);
+  assert.match(site.tools[0].verification.hashes.review_digest, /^[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(site).includes('Laptop Pro'), false);
   const again = await cli(['review', '--site', fixture.origin, '--yes', '--input', JSON.stringify({ product_name: 'Laptop Pro' })], env);
   assert.equal(JSON.parse(again.stdout).reviewed, 0);
+  site.tools[0].goal = 'Look up a product by reviewed name';
+  await saveSite(site, env);
+  const stale = await cli(['review', '--site', fixture.origin, '--yes', '--input', JSON.stringify({ product_name: 'Laptop Pro' })], env);
+  assert.equal(stale.exitCode, 0, stale.stdout);
+  assert.equal(JSON.parse(stale.stdout).reviewed, 1);
+  const refreshed = JSON.parse(await readFile(siteFile(fixture.origin, env), 'utf8'));
+  assert.notEqual(refreshed.tools[0].verification.hashes.review_digest, site.tools[0].verification.hashes.review_digest);
 });

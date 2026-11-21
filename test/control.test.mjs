@@ -9,12 +9,6 @@ import { startFixture } from './fixtures/server.mjs';
 
 const cli = (args, env) => execa(process.execPath, ['src/cli.mjs', ...args], { env: { ...process.env, ...env }, cwd: process.cwd(), reject: false });
 const parse = result => JSON.parse(result.stdout);
-const waitFor = async (predicate, ms = 2000) => {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { if (predicate()) return true; await new Promise(resolve => setTimeout(resolve, 50)); }
-  return false;
-};
-
 async function boot(t, extra = []) {
   const fixture = await startFixture();
   const home = await mkdtemp(join(tmpdir(), 'web2api-control-'));
@@ -28,7 +22,7 @@ async function boot(t, extra = []) {
   return { fixture, home, env };
 }
 
-test('destructive requests wait for a single-use confirmation', { timeout: 90000 }, async t => {
+test('destructive requests cannot be confirmed by the agent', { timeout: 90000 }, async t => {
   const { fixture, env } = await boot(t);
   const initial = parse(await cli(['explore', 'snapshot', '--site', fixture.origin], env));
   const ref = initial.snapshot.match(/button "Delete item"[^\n]*\[ref=((?:f\d+)?e\d+)\]/i)?.[1];
@@ -38,10 +32,10 @@ test('destructive requests wait for a single-use confirmation', { timeout: 90000
   assert.equal(blocked.blocked[0].method, 'DELETE');
   assert.ok(!fixture.requests.some(request => request.method === 'DELETE'));
   const confirmed = parse(await cli(['explore', 'confirm', '--site', fixture.origin, '--nonce', blocked.blocked[0].nonce], env));
-  assert.equal(confirmed.confirmed, true);
+  assert.equal(confirmed.error, 'HUMAN_APPROVAL_UNAVAILABLE');
   const allowed = parse(await cli(['explore', 'click', '--site', fixture.origin, '--ref', ref], env));
-  assert.equal(allowed.confirmation_required, undefined);
-  assert.ok(await waitFor(() => fixture.requests.some(request => request.method === 'DELETE')));
+  assert.equal(allowed.confirmation_required?.code, 'CONFIRM_REQUIRED');
+  assert.ok(!fixture.requests.some(request => request.method === 'DELETE'));
 });
 
 test('budget stops actions but keeps status and stop available', { timeout: 90000 }, async t => {

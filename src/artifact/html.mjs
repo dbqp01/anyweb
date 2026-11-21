@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import { load } from 'cheerio';
-import { parse } from './errors.mjs';
+import { parse, WorkflowError } from './errors.mjs';
 
 const key = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_-]{0,79}$/).refine(s => !['__proto__', 'prototype', 'constructor'].includes(s));
 const selector = z.string().trim().min(1).max(300);
 const attribute = z.string().regex(/^[a-zA-Z_:][-a-zA-Z0-9_:.]{0,99}$/);
 const MAX_VALUE = 2000;
-const MAX_ROWS = 250;
+export const MAX_ROWS = 1000;
 
 const fieldSchema = z.object({
   selector: selector.optional(),
@@ -53,12 +53,15 @@ export function extractHtml(html, baseUrl, rawSpec) {
   const spec = parse(extractSchema, rawSpec, 'INVALID_EXTRACTION');
   const $ = load(html);
   if (spec.mode === 'object') {
-    const root = $(spec.root).first();
+    const root = $(spec.root);
     if (!root.length) return null;
+    if (root.length > 1) throw new WorkflowError('AMBIGUOUS_EXTRACTION', 422);
     return Object.fromEntries(Object.entries(spec.fields).map(([name, field]) => [name, valueOf($, root, field, baseUrl)]));
   }
   // The recipe check model addresses collections by path; wrap rows so `items` is that path.
-  const rows = $(spec.root).toArray().slice(0, MAX_ROWS)
+  const elements = $(spec.root).toArray();
+  if (elements.length > MAX_ROWS) throw new WorkflowError('EXTRACTION_LIMIT_EXCEEDED', 422, { limit: MAX_ROWS });
+  const rows = elements
     .map(element => Object.fromEntries(Object.entries(spec.fields).map(([name, field]) => [name, valueOf($, element, field, baseUrl)])));
   const kept = spec.require.length ? rows.filter(row => spec.require.every(field => row[field] !== null)) : rows;
   return { items: spec.unique ? [...new Map(kept.map(row => [row[spec.unique], row])).values()] : kept };

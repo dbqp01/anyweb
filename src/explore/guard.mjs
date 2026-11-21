@@ -2,28 +2,26 @@ import { randomBytes } from 'node:crypto';
 import { WorkflowError } from '../artifact/errors.mjs';
 import { redactUrl } from '../redact.mjs';
 
-const SAFE_METHODS = new Set(['GET', 'POST']);
-const DESTRUCTIVE = /delete|remove|send|submit|pay|buy|logout/i;
+const SAFE_METHODS = new Set(['GET']);
+const DESTRUCTIVE = /delete|remove|send|submit|pay|buy|logout|close|unsubscribe|revoke/i;
+
+function destructiveUrl(value) {
+  const url = new URL(value);
+  return DESTRUCTIVE.test(url.pathname) || [...url.searchParams].some(([key, input]) =>
+    ['action', 'op', 'cmd', 'command', 'method', 'do'].includes(key.toLowerCase()) && DESTRUCTIVE.test(input));
+}
 
 export function createGuard(context) {
-  const pending = [], allowed = new Map();
+  const pending = [];
   context.route('**/*', async route => {
     const request = route.request();
     const method = request.method();
     const url = request.url();
-    const postData = request.postData() ?? '';
-    if (SAFE_METHODS.has(method) && !DESTRUCTIVE.test(`${url} ${postData}`)) {
+    if (SAFE_METHODS.has(method) && !destructiveUrl(url)) {
       await route.continue().catch(() => {});
       return;
     }
-    const signature = `${method} ${url} ${postData}`;
-    const remaining = allowed.get(signature) ?? 0;
-    if (remaining > 0) {
-      if (remaining === 1) allowed.delete(signature); else allowed.set(signature, remaining - 1);
-      await route.continue().catch(() => {});
-      return;
-    }
-    pending.push({ nonce: randomBytes(8).toString('hex'), method, url: redactUrl(url), signature, at: Date.now() });
+    pending.push({ nonce: randomBytes(8).toString('hex'), method, url: redactUrl(url), at: Date.now() });
     if (pending.length > 100) pending.splice(0, pending.length - 100);
     await route.abort('blockedbyclient').catch(() => {});
   });
@@ -33,9 +31,8 @@ export function createGuard(context) {
     confirm(nonce) {
       const index = pending.findIndex(entry => entry.nonce === nonce);
       if (index < 0) throw new WorkflowError('UNKNOWN_NONCE', 404);
-      const [entry] = pending.splice(index, 1);
-      allowed.set(entry.signature, 1);
-      return entry;
+      // shortcut: no trusted human approval channel yet; add one before enabling writes.
+      throw new WorkflowError('HUMAN_APPROVAL_UNAVAILABLE', 409);
     },
   };
 }

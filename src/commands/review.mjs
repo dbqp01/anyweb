@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { WorkflowError } from '../artifact/errors.mjs';
 import { downloadsDir, loadSite, saveSite } from '../artifact/site.mjs';
+import { assertReviewed, reviewDigest, REVIEW_DIGEST_KEY } from '../artifact/review-integrity.mjs';
 import { createRecipeRunner, readWorkflowInput } from '../artifact/recipe.mjs';
 import { redact, redactUrl } from '../redact.mjs';
 import { readSession } from '../session.mjs';
@@ -33,7 +34,10 @@ function describe(tool) {
   if (tool.recipe.execution === 'browser') {
     process.stderr.write('  execution: browser (local Chromium required)\n');
     for (const [index, step] of tool.recipe.steps.entries()) process.stderr.write(`  ${index + 1}. ${JSON.stringify(step)}\n`);
-    for (const request of tool.approved_requests) process.stderr.write(`  allow: ${request.method} ${request.origin}${request.path}\n`);
+    for (const request of tool.approved_requests) {
+      process.stderr.write(`  allow: ${request.method} ${request.origin}${request.path}\n`);
+      process.stderr.write(`    query policy: ${JSON.stringify(request.query)}\n`);
+    }
     return;
   }
   for (const [index, step] of tool.recipe.steps.entries()) process.stderr.write(`  ${index + 1}. ${step.method} ${step.origin}${step.path} (${step.response})\n`);
@@ -42,6 +46,13 @@ function describe(tool) {
 export async function review({ site: target, input, yes }, env = process.env) {
   const origin = originOf(target);
   let site = await loadSite(origin, env);
+  for (const tool of site.tools) if (tool.status === 'approved') {
+    try { assertReviewed(tool); }
+    catch (error) {
+      if (error.code !== 'REVIEW_STALE') throw error;
+      tool.status = 'proposed';
+    }
+  }
   const pending = site.tools.filter(tool => tool.status === 'proposed');
   const supplied = input === undefined ? null : parseProvided(input, site.tools);
   if (yes && pending.length && !supplied) throw new WorkflowError('INPUT_REQUIRED', 400);
@@ -67,7 +78,7 @@ export async function review({ site: target, input, yes }, env = process.env) {
       try {
         const createRunner = tool.recipe.execution === 'browser' ? (await import('../browser/runner.mjs')).createBrowserRunner : createRecipeRunner;
         result = await createRunner(tool.recipe, tool.approved_requests, {
-          session, downloadDir: downloadsDir(origin), allowLoopback: LOOPBACK.has(new URL(origin).hostname),
+          session, downloadDir: downloadsDir(origin, env), allowLoopback: LOOPBACK.has(new URL(origin).hostname),
           onStep: step => {
             if (step.action) { process.stderr.write(`  step ${step.step + 1}: ${step.action} ${redactUrl(step.url)}\n`); return; }
             process.stderr.write(`  step ${step.step + 1}: ${step.method} ${redactUrl(step.url)} -> ${step.status} (${step.content_type})\n`);
@@ -93,7 +104,8 @@ export async function review({ site: target, input, yes }, env = process.env) {
         if (!yes) accept = /^(a|approve|y|yes)$/i.test((await rl.question(`  approve ${tool.id}? [a/r]: `)).trim());
         tool.status = accept ? 'approved' : 'rejected';
         tool.reviewed_at = new Date().toISOString();
-        if (accept) approved++;
+        if (accept) { tool.verification.hashes[REVIEW_DIGEST_KEY] = reviewDigest(tool); approved++; }
+        else delete tool.verification.hashes[REVIEW_DIGEST_KEY];
       }
       site = await saveSite(site, env);
     }

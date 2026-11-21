@@ -51,17 +51,20 @@ Las demostraciones viven en el daemon: ejecuta `propose` antes de detenerlo. `re
 - Si el texto escrito o el nombre del elemento pulsado cambia exactamente con una entrada entre ambas demostraciones, lo convierte en un parámetro. Rechaza diferencias ambiguas, transformaciones no representadas y secuencias inconsistentes.
 - Cada entrada debe participar en una acción y aparecer en algún campo del resultado. Los campos presentes y no vacíos en ambos ejemplos pasan a ser obligatorios.
 - `propose` compara exactamente la salida de cada reproducción con el DOM capturado en esa demostración. El caso `eval` no se usa para aprender acciones, parámetros ni permisos de red.
+- La política de red del navegador fija las claves de consulta observadas en `train`: cada valor es literal o está vinculado a una entrada. La revisión muestra estas reglas y el motor rechaza parámetros adicionales, duplicados o valores distintos antes de enviar la petición.
 - En ejecución comprueba relación entre entradas y salida, campos requeridos y selectores no ambiguos. Esto detecta ciertas roturas; no demuestra por sí solo que un precio o una fecha sigan siendo correctos. Los sitios con valores variables pueden necesitar un contrato de evaluación distinto y actualmente fallar en la comparación exacta.
 
 ## Alcance y límites
 
 Esta versión admite lecturas con peticiones GET a las rutas y orígenes observados en entrenamiento y declarados en el sitio. GET no demuestra que un endpoint carezca de efectos: hay que revisar su significado antes de aprobarlo. No se admiten POST, escrituras, descargas, redirecciones, WebSocket, service workers, ventanas nuevas ni diálogos. Las peticiones no revisadas abortan el flujo. Las redirecciones se rechazan antes de que Chromium las siga.
 
+Las políticas de navegador antiguas sin reglas de consulta solo permiten peticiones sin parámetros; vuelve a proponer y revisar la herramienta si los necesita. Parámetros aleatorios o variables que no coincidan con una entrada declarada (por ejemplo, algunos identificadores de caché) no son compatibles con esta inferencia.
+
 Las sesiones se cargan desde el estado guardado localmente con `session login`; cada invocación crea y cierra un contexto nuevo. No se aceptan cabeceras de sesión manuales en este motor ni se enseñan contraseñas mediante acciones de escritura. El estado generado durante una invocación no se persiste. Las aplicaciones dependientes de IndexedDB o perfiles especiales pueden requerir un conector dedicado.
 
 Límites: 32 acciones, 128 rutas revisadas, 200 peticiones y 30 segundos por ejecución después de lanzar Chromium. La creación del navegador tiene su propio timeout de 15 segundos. No hay reintento automático, reparación de selectores ni búsqueda autónoma de la tarea.
 
-`package` devuelve `runtime: local_browser_runtime`. Genera una instantánea de la receta aprobada y un lanzador MCP que usa este checkout, Playwright y Chromium instalados. No es un paquete portable: al mover o borrar el checkout deja de funcionar, y las actualizaciones del runtime local afectan a estos lanzadores. Esta decisión permite reutilizar el motor instalado sin incluir silenciosamente un navegador dentro de un bundle HTTP. Los sitios exclusivamente HTTP conservan `runtime: standalone_http`.
+`package` devuelve `runtime: local_browser_runtime`. Genera un bundle MCP con una instantánea de la receta, pero Playwright permanece externo y se resuelve desde la instalación que lo generó; Chromium se instala aparte. Mover o borrar esa instalación puede romper el bundle de navegador. Los sitios exclusivamente HTTP conservan `runtime: standalone_http`.
 
 ## Evidencia reproducible
 

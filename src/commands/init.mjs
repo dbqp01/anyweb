@@ -1,5 +1,5 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { draftSiteSchema, siteDir, siteFile } from '../artifact/site.mjs';
+import { draftSiteSchema, loadDeclarations, siteDir, siteFile } from '../artifact/site.mjs';
 import { parse, WorkflowError } from '../artifact/errors.mjs';
 
 export async function initSite({ file }, env = process.env) {
@@ -15,6 +15,12 @@ export async function initSite({ file }, env = process.env) {
     if (new Set(tool.input_fields).size !== tool.input_fields.length) {
       throw new WorkflowError('INVALID_INPUT', 400, { tool: tool.id, detail: 'input_fields must be unique' });
     }
+  }
+  try {
+    await loadDeclarations(site.origin, env);
+    throw new WorkflowError('SITE_ALREADY_EXISTS', 409, { site: site.origin, detail: 'Existing declaration preserved' });
+  } catch (error) {
+    if (error.code !== 'SITE_NOT_FOUND') throw error;
   }
   const target = siteFile(site.origin, env);
   await mkdir(siteDir(site.origin, env), { recursive: true });

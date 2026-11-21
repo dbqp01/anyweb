@@ -66,7 +66,7 @@ test('package bundles approved tools into a standalone MCP server', { timeout: 1
   const code = await readFile(payload.bundle, 'utf8');
   assert.equal(/\bplaywright\b/i.test(code), false);
   const snippet = JSON.parse(await readFile(payload.snippet, 'utf8'));
-  assert.deepEqual(snippet.mcpServers['anyweb-fixture'], { command: 'node', args: [payload.bundle] });
+  assert.deepEqual(snippet.mcpServers['anyweb-fixture'], { command: process.execPath, args: [payload.bundle], env: { WEB2API_HOME: home } });
   const evidence = JSON.parse(await readFile(payload.evidence, 'utf8'));
   assert.equal(JSON.stringify(evidence).includes('Laptop'), false);
   await access(payload.bundle);
@@ -76,6 +76,13 @@ test('package bundles approved tools into a standalone MCP server', { timeout: 1
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [payload.bundle], env: envOf({ WEB2API_DOWNLOADS: downloads }), stderr: 'pipe' }));
   const listed = await client.listTools();
   assert.deepEqual(listed.tools.map(tool => tool.name).sort(), ['product_detail', 'product_file']);
+  const readHints = listed.tools.find(tool => tool.name === 'product_detail').annotations;
+  const downloadHints = listed.tools.find(tool => tool.name === 'product_file').annotations;
+  assert.equal(readHints.readOnlyHint, true);
+  assert.equal(readHints.openWorldHint, true);
+  assert.equal(downloadHints.readOnlyHint, false);
+  assert.equal(downloadHints.idempotentHint, false);
+  assert.equal(downloadHints.openWorldHint, true);
 
   const read = await client.callTool({ name: 'product_detail', arguments: { product_name: 'Laptop Air' } });
   assert.ok(!read.isError, JSON.stringify(read));

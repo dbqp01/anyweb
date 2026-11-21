@@ -27,7 +27,7 @@ test('HTML runner scopes saved cookies at every redirect and resolves final-page
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end('<li><span>alpha</span><a href="detail">Open</a></li>');
   });
-  const approved = [{ origin, path: '/private/search', method: 'GET', success: {} }];
+  const approved = [{ origin, path: '/private/search', method: 'GET', success: {} }, { origin, path: '/public/results/', method: 'GET', success: {} }];
   const traces = ['alpha', 'beta'].map(q => ({ input: { q }, calls: [{
     origin, path: '/private/search', method: 'GET', encoding: 'query', params: { q }, status: 200, response_kind: 'html',
     response: { items: [{ name: q, url: `${origin}/public/results/detail` }] },

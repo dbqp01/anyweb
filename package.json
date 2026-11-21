@@ -1,16 +1,32 @@
 {
   "name": "anyweb-mcp",
   "description": "AnyWeb MCP — Websites & web services to MCP",
+  "repository": { "type": "git", "url": "https://github.com/dbqp01/Web2Agent.git" },
+  "homepage": "https://github.com/dbqp01/Web2Agent#readme",
+  "bugs": { "url": "https://github.com/dbqp01/Web2Agent/issues" },
+  "keywords": ["mcp", "web", "browser", "agents"],
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "bin": {
-    "anyweb": "./src/cli.mjs",
-    "web2api": "./src/cli.mjs"
+    "anyweb": "src/cli.mjs",
+    "web2api": "src/cli.mjs"
   },
   "engines": {
     "node": ">=24 <25"
   },
+  "files": [
+    "src",
+    "README.md",
+    "AGENTS.md",
+    "skills/anyweb",
+    "examples",
+    "docs/method.md",
+    "docs/browser-workflows.md",
+    "docs/origin-isolation.md",
+    "docs/whatsapp.md",
+    "docs/temu.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:live": "node --test test/live/demoblaze.test.mjs"
@@ -18,18 +34,16 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@modelcontextprotocol/server": "^2.3.1",
+    "@modelcontextprotocol/client": "^2.3.1",
     "@whiskeysockets/baileys": "6.7.24",
     "cheerio": "1.2.0",
     "commander": "^15.0.0",
+    "esbuild": "^0.28.2",
     "execa": "^10.2.0",
     "hono": "^4.13.10",
     "pino": "^10.4.0",
+    "playwright": "^1.64.1",
     "qrcode-terminal": "0.12.0",
     "zod": "^4.6.7"
-  },
-  "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
-    "esbuild": "^0.28.2",
-    "playwright": "^1.64.1"
   }
 }

@@ -11,7 +11,7 @@ export function createServer(runner) {
       title: definition.description,
       description: definition.description,
       inputSchema: whatsappInputs[name],
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async input => {
       try {
         const result = await runner.run(name, input);

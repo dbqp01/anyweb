@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import { browserRecipeSchema, browserResultMatches } from '../artifact/browser.mjs';
-import { readWorkflowInput } from '../artifact/recipe.mjs';
+import { readPolicySchema, readWorkflowInput } from '../artifact/recipe.mjs';
 import { extractHtml } from '../artifact/html.mjs';
 import { parse, WorkflowError } from '../artifact/errors.mjs';
 import { redactUrl } from '../redact.mjs';
@@ -8,20 +8,54 @@ import { redactUrl } from '../redact.mjs';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const resolve = (binding, input) => binding.kind === 'input' ? input[binding.field] : binding.value;
 const signature = (method, url) => `${method} ${url.origin}${url.pathname}`;
+// Bound values replace whole query entries, so demo values cannot add or shadow parameters.
+const openUrl = (step, input) => {
+  const url = new URL(step.url);
+  for (const binding of step.query ?? []) url.searchParams.set(binding.name, resolve(binding, input));
+  return url;
+};
+// A request may only repeat the reviewed query exactly: same names, literals equal, and
+// input rules equal to the declared input. Everything else stays unreviewed.
+const queryAllowed = (policy, url, input) => {
+  const rules = new Map(policy.query.map(rule => [rule.name, rule])), entries = [...url.searchParams];
+  return new Set(entries.map(([name]) => name)).size === entries.length && entries.length === rules.size &&
+    entries.every(([name, value]) => {
+      const rule = rules.get(name);
+      return rule?.kind === 'literal' ? rule.value === value : rule?.kind === 'input' && input[rule.field] === value;
+    });
+};
+// Steps are reviewed before launch: neither a static value nor a binding may invent a query.
+const stepReviewed = (policy, step) => {
+  const rules = new Map(policy.query.map(rule => [rule.name, rule]));
+  const params = [...new URL(step.url).searchParams], bindings = step.query ?? [];
+  const names = [...params.map(([name]) => name), ...bindings.map(binding => binding.name)];
+  return new Set(names).size === names.length && names.length === rules.size &&
+    params.every(([name, value]) => rules.get(name)?.kind === 'literal' && rules.get(name).value === value) &&
+    bindings.every(binding => rules.get(binding.name)?.kind === 'input' && rules.get(binding.name).field === binding.field);
+};
 
 export function createBrowserRunner(rawRecipe, approved, { session = null, allowLoopback = false, onStep = () => {} } = {}) {
   const recipe = parse(browserRecipeSchema, rawRecipe, 'INVALID_BROWSER_RECIPE');
   if (recipe.session && !session) throw new WorkflowError('REAUTH_REQUIRED', 401);
   if (Object.keys(session?.headers ?? {}).length) throw new WorkflowError('BROWSER_STORAGE_STATE_REQUIRED', 400);
-  const allowed = new Set();
+  const allowed = new Map();
   for (const request of approved) {
     const url = new URL(request.path, request.origin);
     if (url.origin !== request.origin || url.username || url.password ||
         !(url.protocol === 'https:' || (allowLoopback && url.protocol === 'http:' && LOOPBACK.has(url.hostname)))) throw new WorkflowError('ORIGIN_REJECTED', 400);
     if (request.method !== 'GET') throw new WorkflowError('BROWSER_READ_ONLY', 400);
-    allowed.add(signature(request.method, url));
+    // Legacy approvals carry no query policy; they parse to an empty one and fail closed.
+    let policy;
+    try { policy = parse(readPolicySchema, request, 'UNREVIEWED_QUERY'); }
+    catch { throw new WorkflowError('UNREVIEWED_QUERY', 400); }
+    if (policy.query.some(rule => rule.kind === 'input' && !recipe.input_fields.includes(rule.field))) throw new WorkflowError('UNREVIEWED_QUERY', 400);
+    allowed.set(signature('GET', url), policy);
   }
-  for (const step of recipe.steps) if (step.action === 'open' && !allowed.has(signature('GET', new URL(step.url)))) throw new WorkflowError('UNREVIEWED_OPERATION', 400);
+  for (const step of recipe.steps) if (step.action === 'open') {
+    const policy = allowed.get(signature('GET', new URL(step.url)));
+    if (!policy) throw new WorkflowError('UNREVIEWED_OPERATION', 400);
+    if (!stepReviewed(policy, step)) throw new WorkflowError('UNREVIEWED_QUERY', 400);
+  }
 
   return async raw => {
     const input = parse(readWorkflowInput(recipe), raw);
@@ -43,9 +77,13 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
       await context.route('**/*', async route => {
         let response;
         try {
-          const request = route.request(), url = new URL(request.url());
-          if (failure || request.method() !== 'GET' || url.username || url.password || !allowed.has(signature(request.method(), url))) {
+          const request = route.request(), url = new URL(request.url()), policy = allowed.get(signature(request.method(), url));
+          if (failure || !policy || url.username || url.password) {
             block('UNREVIEWED_OPERATION');
+            return await route.abort();
+          }
+          if (!queryAllowed(policy, url, input)) {
+            block('UNREVIEWED_QUERY');
             return await route.abort();
           }
           if (++requests > 200) { block('BUDGET_EXHAUSTED'); return await route.abort(); }
@@ -72,7 +110,12 @@ export function createBrowserRunner(rawRecipe, approved, { session = null, allow
       for (; index < recipe.steps.length; index++) {
         if (failure) throw failure;
         const step = recipe.steps[index];
-        if (step.action === 'open') await page.goto(step.url, { waitUntil: 'domcontentloaded' });
+        if (step.action === 'open') {
+          const url = openUrl(step, input), policy = allowed.get(signature('GET', url));
+          if (!policy) throw new WorkflowError('UNREVIEWED_OPERATION', 400);
+          if (!queryAllowed(policy, url, input)) throw new WorkflowError('UNREVIEWED_QUERY', 400);
+          await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+        }
         else if (step.action === 'press') await page.keyboard.press(step.key);
         else {
           const locator = target(step.locator);

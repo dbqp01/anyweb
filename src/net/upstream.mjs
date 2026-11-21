@@ -47,7 +47,7 @@ function statusError(response) {
   return new WorkflowError('UPSTREAM_UNAVAILABLE');
 }
 
-async function request(url, init, binary, limit, { redirects = 0, cookies = [] } = {}) {
+async function request(url, init, binary, limit, { redirects = 0, cookies = [], detectLoginRedirect = false, redirectAllowed = () => true } = {}) {
   try {
     let current = new URL(url);
     const signal = AbortSignal.timeout(TIMEOUT_MS);
@@ -64,6 +64,7 @@ async function request(url, init, binary, limit, { redirects = 0, cookies = [] }
         const location = response.headers.get('location');
         if ([301, 302, 303, 307, 308].includes(response.status) && location) {
           const next = new URL(location, current);
+          if (detectLoginRedirect && /\/(?:login|signin|sign-in)(?:\/|$|\.php)/i.test(next.pathname)) throw new WorkflowError('REAUTH_REQUIRED', 401);
           // A session or a redirect must never leave the reviewed origin.
           if (hop >= redirects || next.origin !== current.origin || next.username || next.password) throw new WorkflowError('UPSTREAM_UNAVAILABLE');
           const method = (init.method ?? 'GET').toUpperCase();
@@ -74,6 +75,7 @@ async function request(url, init, binary, limit, { redirects = 0, cookies = [] }
               if (['content-encoding', 'content-language', 'content-location', 'content-type', 'content-length'].includes(header.toLowerCase())) delete init.headers[header];
             }
           }
+          if (!redirectAllowed(next, (init.method ?? 'GET').toUpperCase())) throw new WorkflowError('UNREVIEWED_OPERATION', 422);
           current = next;
           continue;
         }
@@ -106,8 +108,8 @@ export async function upstreamJson(url, init = {}, { allowJsonText = false, cook
   }
 }
 
-export async function upstreamHtml(url, init = {}, { cookies = [] } = {}) {
-  const { url: finalUrl, contentType, body } = await request(url, init, false, MAX_HTML, { redirects: 3, cookies });
+export async function upstreamHtml(url, init = {}, { cookies = [], detectLoginRedirect = false, redirectAllowed } = {}) {
+  const { url: finalUrl, contentType, body } = await request(url, init, false, MAX_HTML, { redirects: 3, cookies, detectLoginRedirect, redirectAllowed });
   const type = contentType.split(';')[0].trim().toLowerCase();
   if (type !== 'text/html' && type !== 'application/xhtml+xml') throw new WorkflowError('UPSTREAM_UNAVAILABLE');
   return { html: body.toString('utf8'), url: finalUrl };

@@ -9,6 +9,7 @@ artifacts/
 .codex/
 .playwright-mcp/
 dist/
+tmp/
 *.log
 *.pem
 *.key

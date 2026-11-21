@@ -4,8 +4,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, WorkflowError } from './errors.mjs';
-import { extractHtml, extractSchema } from './html.mjs';
+import { extractHtml, extractSchema, MAX_ROWS } from './html.mjs';
 import { upstreamBinary, upstreamHtml, upstreamJson } from '../net/upstream.mjs';
+import { isSensitiveKey, redact, redactUrl } from '../redact.mjs';
 
 const key = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_-]{0,79}$/).refine(s => !['__proto__', 'prototype', 'constructor'].includes(s));
 const scalar = z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()]);
@@ -37,7 +38,18 @@ const requestSchema = z.object({
   save: z.object({ filename: z.string().min(1).max(120) }).strict().nullable().default(null),
 }).strict()
 export const readPolicySchema = requestSchema.pick({ origin: true, path: true, method: true, allow_json_text: true, success: true })
-  .extend({ allow_json_text: z.boolean().default(false), success: z.record(fieldPath, scalar).default({}) });
+  .extend({ allow_json_text: z.boolean().default(false), success: z.record(fieldPath, scalar).default({}),
+    // Absent means "no query was reviewed": query-bearing requests stay blocked.
+    // Only the browser runner enforces this; HTTP recipes bind every parameter in `params`.
+    query: z.array(z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('literal'), name: key, value: z.string().max(1000) }).strict(),
+      z.object({ kind: z.literal('input'), name: key, field: key }).strict(),
+    ])).max(8).default([]) })
+  .superRefine((policy, ctx) => {
+    const names = policy.query.map(rule => rule.name);
+    if (new Set(names).size !== names.length) ctx.addIssue({ code: 'custom', message: 'query rules must be unique' });
+    if (names.some(isSensitiveKey)) ctx.addIssue({ code: 'custom', message: 'secret query parameters cannot be approved' });
+  });
 const downloadSchema = z.object({
   content_types: z.array(z.string().min(1).max(200)).min(1).max(8),
   max_bytes: z.number().int().min(1).max(50 * 1024 * 1024).default(50 * 1024 * 1024),
@@ -133,7 +145,7 @@ function matches(shape, value) {
   if (shape.type === 'any') return true;
   if (shape.type === 'nullable') return value === null || matches(shape.of, value);
   if (shape.type === 'null') return value === null;
-  if (shape.type === 'array') return Array.isArray(value) && value.length <= 250 && (!shape.item || value.every(item => matches(shape.item, item)));
+  if (shape.type === 'array') return Array.isArray(value) && value.length <= MAX_ROWS && (!shape.item || value.every(item => matches(shape.item, item)));
   if (shape.type === 'object') return value && typeof value === 'object' && !Array.isArray(value) && Object.entries(shape.fields).every(([field, child]) => Object.hasOwn(value, field) && matches(child, value[field]));
   return typeof value === shape.type && (typeof value !== 'number' || Number.isFinite(value));
 }
@@ -239,7 +251,7 @@ export function compileRecipe({ id, effect = 'read', traces: rawTraces, approved
       // A literal `token=0` is a public upstream flag; anything else named like a credential stays out of recipes.
       const publicToken = param.toLowerCase() === 'token' &&
         traces.every(t => isDeepStrictEqual(t.calls[step].params[param], value)) && /^[0-9]{1,2}$/.test(String(value));
-      if (!publicToken && /token|cookie|secret|password|authorization/i.test(param)) fail('SECRET_IN_RECIPE');
+      if (!publicToken && isSensitiveKey(param)) fail('SECRET_IN_RECIPE');
       const candidates = input_fields.filter(field => traces.every(t => same(t.input[field], t.calls[step].params[param])));
       if (candidates.length > 1) fail('AMBIGUOUS_PARAMETER');
       if (candidates.length === 1) params[param] = { kind: 'input', field: candidates[0], cast: typeof value };
@@ -279,7 +291,7 @@ export function readWorkflowInput(recipe) {
 function toZod(shape) {
   if (shape.type === 'nullable') return toZod(shape.of).nullable();
   if (shape.type === 'object') return z.object(Object.fromEntries(Object.entries(shape.fields).map(([field, child]) => [field, toZod(child)])));
-  if (shape.type === 'array') return z.array(shape.item ? toZod(shape.item) : z.unknown()).max(250);
+  if (shape.type === 'array') return z.array(shape.item ? toZod(shape.item) : z.unknown()).max(MAX_ROWS);
   // Leaf types drift on real APIs (text on one row, an object on another); the object and array
   // skeleton is the enforceable output contract.
   return z.unknown();
@@ -339,6 +351,8 @@ async function writeUnique(directory, filename, buffer) {
 
 export function createRecipeRunner(recipe, approvedRequests, { session = null, downloadDir, allowLoopback = false, onStep = () => {} } = {}) {
   recipe = parse(recipeSchema, recipe, 'INVALID_RECIPE');
+  // shortcut: POST effects are unproven; enable only after a trusted approval policy exists.
+  if (recipe.steps.some(step => step.method !== 'GET')) fail('UNSAFE_METHOD_UNSUPPORTED', 422);
   if (recipe.steps.some(s => !approvedRequests.some(r => r.origin === s.origin && r.path === s.path && r.method === s.method && !!r.allow_json_text === s.allow_json_text && isDeepStrictEqual(r.success ?? {}, s.success)))) fail('UNREVIEWED_OPERATION');
   for (const step of recipe.steps) checkOrigin(step, allowLoopback);
   if (recipe.effect === 'download' && !downloadDir) fail('DOWNLOAD_DIR_REQUIRED', 500);
@@ -381,7 +395,7 @@ export function createRecipeRunner(recipe, approvedRequests, { session = null, d
         if (!recipe.download.content_types.some(allowed => allowed.split(';')[0].trim().toLowerCase() === type)) fail('UPSTREAM_CHANGED');
         const sha256 = createHash('sha256').update(buffer).digest('hex');
         const path = await writeUnique(downloadDir, renderFilename(step.save.filename, input, contentType), buffer);
-        const call = { method: step.method, url: url.href, parameters: Object.keys(params), status: 200 };
+        const call = { method: step.method, url: redactUrl(url.href), parameters: Object.keys(params), status: 200 };
         onStep({ step: index, ...call, content_type: contentType, bytes: buffer.length });
         return { file: { path, bytes: buffer.length, content_type: contentType, sha256 },
           evidence: { source_mode: recipe.source_mode, transport: 'http_only', observed_at: new Date().toISOString(), workflow: recipe.id, effect: 'download', steps_completed: index + 1, calls: [...calls, call] } };
@@ -389,7 +403,8 @@ export function createRecipeRunner(recipe, approvedRequests, { session = null, d
       let response;
       try {
         if (step.response === 'html') {
-          const { html, url: finalUrl } = await upstreamHtml(url, init, { cookies: session?.cookies });
+          const { html, url: finalUrl } = await upstreamHtml(url, init, { cookies: session?.cookies, detectLoginRedirect: !!recipe.session,
+            redirectAllowed: (target, method) => approvedRequests.some(request => request.origin === target.origin && request.path === target.pathname && request.method === method) });
           response = extractHtml(html, finalUrl, step.extract);
           if (response === null) fail('UPSTREAM_CHANGED');
         } else response = await upstreamJson(url, init, { allowJsonText: step.allow_json_text, cookies: session?.cookies });
@@ -398,9 +413,9 @@ export function createRecipeRunner(recipe, approvedRequests, { session = null, d
       // Shape is advisory: real APIs vary optional fields (Wikipedia returns an object for the
       // description of a few pages); the checks below are the contract.
       results.push(response);
-      const call = { method: step.method, url: url.href, parameters: Object.keys(params), status: 200 };
+      const call = { method: step.method, url: redactUrl(url.href), parameters: Object.keys(params), status: 200 };
       calls.push(call);
-      onStep({ step: index, ...call, content_type: step.response === 'html' ? 'text/html' : 'application/json', preview: response });
+      onStep({ step: index, ...call, content_type: step.response === 'html' ? 'text/html' : 'application/json', preview: redact(response) });
     }
     const output = results.at(-1);
     for (const check of recipe.checks) {
@@ -420,7 +435,7 @@ export function createRecipeRunner(recipe, approvedRequests, { session = null, d
             !sameIds(matchingRows(catalog, check.filters, input), rows, check.identity)) fail('SEARCH_INCOMPLETE');
       } else fail('INVALID_POSTCONDITION');
     }
-    return parse(readWorkflowOutput(recipe), { data: output, evidence: { source_mode: recipe.source_mode, transport: 'http_only', observed_at: new Date().toISOString(),
+    return parse(readWorkflowOutput(recipe), { data: redact(output), evidence: { source_mode: recipe.source_mode, transport: 'http_only', observed_at: new Date().toISOString(),
       workflow: recipe.id, effect: 'read', steps_completed: results.length, calls, verification: recipe.checks, discovery: recipe.discovery, autonomous_discovery: false } }, 'UPSTREAM_CHANGED');
   };
 }

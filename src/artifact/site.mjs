@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -69,35 +70,55 @@ export const draftSiteSchema = z.object({
 });
 
 export const home = (env = process.env) => env.WEB2API_HOME || join(homedir(), '.web2api');
-export const siteKey = origin => new URL(origin).host.toLowerCase().replace(/[^a-z0-9.-]/g, '_');
+// Hash the canonical origin (scheme + host + port) so http/https and host/port spellings never share storage.
+export const siteKey = origin => createHash('sha256').update(new URL(origin).origin).digest('hex');
+const legacySiteKey = origin => new URL(origin).host.toLowerCase().replace(/[^a-z0-9.-]/g, '_');
+const legacySiteFile = (origin, env) => join(home(env), 'sites', legacySiteKey(origin), 'site.json');
 export const siteDir = (origin, env) => join(home(env), 'sites', siteKey(origin));
 export const siteFile = (origin, env) => join(siteDir(origin, env), 'site.json');
-export const sessionFile = (origin, env) => join(home(env), 'sessions', `${siteKey(origin)}.json`);
+// Legacy host-keyed sessions/profiles carry no origin proof and are never read automatically.
+function checkedSession(name) {
+  if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new WorkflowError('INVALID_SESSION', 400);
+  return name;
+}
+export const sessionFile = (origin, env, name = 'default') => checkedSession(name) === 'default'
+  ? join(home(env), 'sessions', `${siteKey(origin)}.json`)
+  : join(home(env), 'sessions', 'named', siteKey(origin), `${name}.json`);
 // Sites like WhatsApp keep auth in IndexedDB, which storageState does not capture.
-export const profileDir = (origin, env) => join(home(env), 'profiles', siteKey(origin));
+export const profileDir = (origin, env, name = 'default') => checkedSession(name) === 'default'
+  ? join(home(env), 'profiles', siteKey(origin))
+  : join(home(env), 'profiles', 'named', siteKey(origin), name);
 export const runFile = (origin, env) => join(home(env), 'run', `${siteKey(origin)}.json`);
 export const runLog = (origin, env) => join(home(env), 'run', `${siteKey(origin)}.log`);
 export const downloadsDir = (origin, env = process.env) =>
   join(env.WEB2API_DOWNLOADS || join(homedir(), 'Downloads'), 'web2api', siteKey(origin));
 
-export async function loadSite(origin, env = process.env) {
-  const file = siteFile(origin, env);
+// Legacy site files live under a host-only key shared by colliding origins; the embedded origin is the only proof of ownership.
+async function readSiteRaw(origin, env) {
   let raw;
-  try { raw = await readFile(file, 'utf8'); } catch (error) {
+  try { raw = await readFile(siteFile(origin, env), 'utf8'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (raw !== undefined) {
+    let value;
+    try { value = JSON.parse(raw); } catch { throw new WorkflowError('INVALID_SITE', 400); }
+    if (value?.origin !== origin) throw new WorkflowError('INVALID_SITE', 400);
+    return raw;
+  }
+  try { raw = await readFile(legacySiteFile(origin, env), 'utf8'); }
+  catch (error) {
     if (error.code === 'ENOENT') throw new WorkflowError('SITE_NOT_FOUND', 404);
     throw error;
   }
-  return parse(siteSchema, JSON.parse(raw), 'INVALID_SITE');
+  try { if (JSON.parse(raw).origin === origin) return raw; } catch {}
+  throw new WorkflowError('SITE_NOT_FOUND', 404);
+}
+
+export async function loadSite(origin, env = process.env) {
+  return parse(siteSchema, JSON.parse(await readSiteRaw(origin, env)), 'INVALID_SITE');
 }
 
 export async function loadDeclarations(origin, env = process.env) {
-  const file = siteFile(origin, env);
-  let raw;
-  try { raw = await readFile(file, 'utf8'); } catch (error) {
-    if (error.code === 'ENOENT') throw new WorkflowError('SITE_NOT_FOUND', 404);
-    throw error;
-  }
-  const value = JSON.parse(raw);
+  const value = JSON.parse(await readSiteRaw(origin, env));
   const draft = draftSiteSchema.safeParse(value);
   if (draft.success) return draft.data;
   const full = siteSchema.safeParse(value);

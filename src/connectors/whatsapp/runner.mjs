@@ -12,7 +12,7 @@ const silentLogger = { level: 'silent', child: () => silentLogger, trace: noop, 
 export const limits = [
   'Read-only bridge to the user\'s own paired WhatsApp account; it never sends messages or presence updates and does not request read receipts.',
   'Unofficial multi-device client: use is at the user\'s risk and may violate WhatsApp Terms; account restriction is possible.',
-  'In-memory snapshot from the recent history sync and live events; it is not a complete archive and resets on restart.',
+  'Recent history and live events are persisted in store.json alongside the paired-device keys and restored on restart; this is not a complete archive. Clearing the auth directory removes the snapshot.',
   'Media is not downloaded; only type, caption/text and timestamps are exposed.',
   'Edits and deletions are not merged into the stored message; reactions are stored as their own messages.',
   'The protocol may still emit automatic delivery acknowledgements; this app does not send read receipts.',

@@ -2,20 +2,21 @@ import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { extractSchema } from './html.mjs';
 import { parse, WorkflowError } from './errors.mjs';
-import { redactUrl } from '../redact.mjs';
+import { isSensitiveKey, redactUrl } from '../redact.mjs';
 
 const field = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_-]{0,79}$/).refine(value => !['__proto__', 'prototype', 'constructor'].includes(value));
 const binding = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('literal'), value: z.string().max(2000) }).strict(),
   z.object({ kind: z.literal('input'), field }).strict(),
 ]);
+const queryBinding = z.object({ name: field, kind: z.literal('input'), field }).strict();
 const locator = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('css'), value: z.string().min(1).max(300) }).strict(),
   z.object({ kind: z.literal('label'), name: binding }).strict(),
   z.object({ kind: z.literal('role'), role: z.enum(['button', 'link', 'textbox', 'combobox', 'checkbox', 'radio', 'tab']), name: binding }).strict(),
 ]);
 const action = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('open'), url: z.url() }).strict(),
+  z.object({ action: z.literal('open'), url: z.url(), query: z.array(queryBinding).min(1).max(8).optional() }).strict(),
   z.object({ action: z.literal('click'), locator }).strict(),
   z.object({ action: z.literal('type'), locator, text: binding, submit: z.boolean() }).strict(),
   z.object({ action: z.literal('press'), key: z.enum(['Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space']) }).strict(),
@@ -39,10 +40,16 @@ export const browserRecipeSchema = z.object({
     if (!recipe.input_fields.includes(check.input) || check.fields.some(name => !Object.hasOwn(recipe.extract.fields, name))) issue('unknown check field');
   }
   for (const step of recipe.steps) {
-    for (const value of [step.text, step.locator?.name]) if (value?.kind === 'input' && !recipe.input_fields.includes(value.field)) issue('unknown input binding');
+    for (const value of [step.text, step.locator?.name, ...(step.query ?? [])]) if (value?.kind === 'input' && !recipe.input_fields.includes(value.field)) issue('unknown input binding');
     if (step.action === 'open') {
       const url = new URL(step.url);
       if (url.username || url.password || redactUrl(step.url) !== url.href) issue('credentials cannot be recorded in navigation URLs');
+      if (step.query) {
+        const names = step.query.map(binding => binding.name);
+        if (new Set(names).size !== names.length) issue('query bindings must be unique');
+        if (names.some(name => url.searchParams.has(name))) issue('query bindings cannot duplicate navigation parameters');
+        if (names.some(isSensitiveKey)) issue('secret query parameters cannot be recorded');
+      }
     }
   }
 });
@@ -66,15 +73,38 @@ export function compileBrowserRecipe({ id, input_fields, session, extract, marks
     if (matches.length !== 1) fail('UNBOUND_BROWSER_VALUE');
     return { kind: 'input', field: matches[0] };
   };
+  const bindUrl = values => {
+    let urls;
+    try { urls = values.map(value => new URL(value)); } catch { fail('INCONSISTENT_BROWSER_ACTIONS'); }
+    const first = urls[0];
+    // Only query values may vary; origin, path and fragment must stay fixed across demonstrations.
+    if (urls.some(url => url.origin !== first.origin || url.pathname !== first.pathname || url.hash !== first.hash)) fail('INCONSISTENT_BROWSER_ACTIONS');
+    const names = urls.map(url => [...url.searchParams.keys()]);
+    if (names.some(keys => new Set(keys).size !== keys.length)) fail('INCONSISTENT_BROWSER_ACTIONS');
+    const query = [];
+    for (const name of new Set(names.flat())) {
+      if (names.some(keys => !keys.includes(name))) fail('INCONSISTENT_BROWSER_ACTIONS');
+      const examples = urls.map(url => url.searchParams.get(name));
+      if (examples.every(value => value === examples[0])) continue;
+      if (isSensitiveKey(name)) fail('SECRET_IN_RECIPE');
+      const matches = input_fields.filter(field => marks.every((mark, index) => mark.input[field] === examples[index]));
+      if (matches.length !== 1) fail('UNBOUND_BROWSER_VALUE');
+      query.push({ name, kind: 'input', field: matches[0] });
+      for (const url of urls) url.searchParams.delete(name);
+    }
+    return query.length ? { url: first.href, query } : { url: first.href };
+  };
   const steps = marks[0].browser_actions.map((first, index) => {
     const actions = marks.map(mark => mark.browser_actions[index]);
     if (actions.some(action => action.action !== first.action)) fail('INCONSISTENT_BROWSER_ACTIONS');
     const step = structuredClone(first);
+    if (first.action === 'open') Object.assign(step, bindUrl(actions.map(action => action.url)));
     if (first.action === 'type') step.text = bind(actions.map(action => action.text));
     if (first.locator?.name !== undefined) step.locator.name = bind(actions.map(action => action.locator?.name));
     const fixed = action => {
       const copy = structuredClone(action);
       if (copy.action === 'type') delete copy.text;
+      if (copy.action === 'open') { delete copy.url; delete copy.query; }
       if (copy.locator?.name !== undefined) delete copy.locator.name;
       return copy;
     };
@@ -84,7 +114,7 @@ export function compileBrowserRecipe({ id, input_fields, session, extract, marks
   const checks = input_fields.map(input => ({ input, fields: Object.keys(extract.fields).filter(field =>
     marks.every(mark => rowsOf(mark.browser_output, extract)?.some(row => contains(row[field], mark.input[input])))) }));
   if (checks.some(check => !check.fields.length)) fail('BROWSER_POSTCONDITION_REQUIRED');
-  const bound = new Set(steps.flatMap(step => [step.text, step.locator?.name].filter(value => value?.kind === 'input').map(value => value.field)));
+  const bound = new Set(steps.flatMap(step => [step.text, step.locator?.name, ...(step.query ?? [])].filter(value => value?.kind === 'input').map(value => value.field)));
   if (input_fields.some(input => !bound.has(input))) fail('UNBOUND_BROWSER_INPUT');
   const required_fields = Object.keys(extract.fields).filter(field => marks.every(mark => {
     const rows = rowsOf(mark.browser_output, extract);

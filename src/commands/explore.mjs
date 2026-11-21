@@ -23,7 +23,7 @@ export async function start({ site, startUrl, headed, session, budgetActions, bu
   const origin = originOf(site);
   if (new URL(startUrl).origin !== origin) throw new WorkflowError('INVALID_ORIGIN', 400);
   if (session && !sessionName(session)) throw new WorkflowError('INVALID_SESSION', 400);
-  const profile = session ? profileDir(origin, process.env) : null;
+  const profile = session ? profileDir(origin, process.env, session) : null;
   const hasProfile = profile ? await stat(profile).then(() => true, () => false) : false;
   if (session && !hasProfile) await readSession(origin, session);
   if (await readState(origin)) throw new WorkflowError('DAEMON_ALREADY_RUNNING', 409);

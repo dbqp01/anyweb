@@ -7,7 +7,6 @@ import { compileRecipe } from '../src/artifact/recipe.mjs';
 import { loadSite, saveSite } from '../src/artifact/site.mjs';
 import { reviewDigest, REVIEW_DIGEST_KEY } from '../src/artifact/review-integrity.mjs';
 import { packageSite } from '../src/commands/package.mjs';
-import { packageWhatsApp } from '../src/connectors/whatsapp/package.mjs';
 
 const ROOT = process.cwd();
 const LICENSE_FILE = /^(licen[cs]e|copying|copyright|notice)(\.[a-z0-9]+)?$/i;
@@ -110,28 +109,6 @@ test('HTTP package ships the complete licenses of every bundled dependency', { t
   const cheerio = (await readFile(join(ROOT, 'node_modules', 'cheerio', 'LICENSE'), 'utf8')).trim();
   assert.ok(notices.includes(cheerio), 'cheerio license text is not reproduced in full');
   assert.doesNotMatch(notices, /^## package: playwright /m, 'playwright is not bundled into an HTTP package');
-
-  const readme = await readFile(result.readme, 'utf8');
-  assert.ok(readme.includes('THIRD_PARTY_NOTICES.txt'));
-});
-
-test('WhatsApp package ships the complete licenses of every bundled dependency', { timeout: 300000 }, async () => {
-  const home = await mkdtemp(join(tmpdir(), 'web2api-whatsapp-notices-'));
-  const env = { WEB2API_HOME: home };
-
-  const result = await packageWhatsApp({}, env);
-  await access(result.bundle);
-  await access(result.notices);
-  const notices = await readFile(result.notices, 'utf8');
-
-  await assertNoticesMatchInstall(notices);
-  assert.match(notices, /^## package: @whiskeysockets\/baileys 6\.7\.24 — MIT$/m);
-  const baileys = (await readFile(join(ROOT, 'node_modules', '@whiskeysockets', 'baileys', 'LICENSE'), 'utf8')).trim();
-  assert.ok(notices.includes(baileys), 'baileys license text is not reproduced in full');
-
-  // Packages that ship no license file must not receive an invented attribution.
-  assert.match(notices, /^## package: agent-base 6\.0\.2 — MIT\n\nThe installed package ships no license text file\. Declared license: MIT\. Upstream: /m);
-  assert.doesNotMatch(notices, /^## package: @akimibks\/anyweb /m);
 
   const readme = await readFile(result.readme, 'utf8');
   assert.ok(readme.includes('THIRD_PARTY_NOTICES.txt'));

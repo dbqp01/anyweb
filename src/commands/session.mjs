@@ -22,7 +22,7 @@ export async function login({ site, session = 'default', startUrl }, env = proce
 
   const profile = profileDir(origin, env, session);
   const { chromium } = await import('playwright');
-  // A persistent profile keeps IndexedDB auth (WhatsApp); storageState is still exported for HTTP replay.
+  // A persistent profile keeps IndexedDB auth; storageState is still exported for HTTP replay.
   const context = await chromium.launchPersistentContext(profile, { headless: false, viewport: { width: 1280, height: 800 } });
   try {
     const page = context.pages()[0] ?? await context.newPage();

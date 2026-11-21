@@ -84,7 +84,7 @@ function checkedSession(name) {
 export const sessionFile = (origin, env, name = 'default') => checkedSession(name) === 'default'
   ? join(home(env), 'sessions', `${siteKey(origin)}.json`)
   : join(home(env), 'sessions', 'named', siteKey(origin), `${name}.json`);
-// Sites like WhatsApp keep auth in IndexedDB, which storageState does not capture.
+// Some sites keep auth in IndexedDB, which storageState does not capture.
 export const profileDir = (origin, env, name = 'default') => checkedSession(name) === 'default'
   ? join(home(env), 'profiles', siteKey(origin))
   : join(home(env), 'profiles', 'named', siteKey(origin), name);

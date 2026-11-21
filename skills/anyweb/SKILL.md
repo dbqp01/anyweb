@@ -111,10 +111,6 @@ todavía no se puede ejecutar si `node_modules` no existe; se comprueba después
 significa checkout incompleto. Si falta `src/cli.mjs` o `package.json`, el origen está incompleto: no
 lo sustituyas por otro paquete.
 
-Git es una dependencia real: Baileys se resuelve desde un repositorio Git (`libsignal`), así que sin
-`git` en `PATH` y acceso a ese repositorio, `npm install` falla. En Windows instala Git for Windows;
-si npm no encuentra `git`, apunta `npm_config_git` a `C:/Program Files/Git/cmd/git.exe`.
-
 Si falta Node 24.x, instala una versión compatible usando un método oficial adecuado al sistema,
 preferiblemente aislado al usuario o al proyecto y sin reemplazar la instalación existente. Verifica
 la procedencia e integridad y ejecuta `node --version` después. Si hace falta elevación, credenciales
@@ -149,7 +145,7 @@ node src/cli.mjs --help          # checkout
 npx --no-install anyweb --help   # tarball
 ```
 
-Esperado: `explore`, `session`, `temu`, `whatsapp`, `mcp`, `init`, `propose`, `review`, `package`.
+Esperado: `explore`, `session`, `mcp`, `init`, `propose`, `review`, `package`.
 
 Solo si vas a usar `explore`, herramientas `execution: browser` o las pruebas de la fase 3
 (recomendado antes de un sitio real). Chromium no viene incluido: se descarga aparte, una vez por
@@ -456,7 +452,6 @@ Nunca incluyas cookies, tokens, contraseñas, capturas con datos personales ni e
 | `PLAYWRIGHT_REQUIRED` | El bundle de navegador no encontró Playwright | `npm ci` y `npx playwright install chromium`; ejecuta con el Node correcto |
 | `Cannot find package 'playwright'` | Faltan dependencias o Chromium | `npm ci` y `npx playwright install chromium` |
 | `npm ci` exige `package-lock.json` (ENOLOCK) | Estás en el tarball, que no incluye lockfile | Usa `npm install <tgz>` |
-| `npm install` falla con `EPERM`/`spawn git` | npm no puede ejecutar `git` (dependencia de Baileys) | Instala Git for Windows o apunta `npm_config_git` al `git.exe` |
 
 ## Referencias
 

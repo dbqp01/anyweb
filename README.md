@@ -21,8 +21,6 @@ Declarar → Navegar y demostrar → Proponer recetas → Revisar → Empaquetar
 - **Sesiones:** inicio de sesión manual en un navegador visible y reutilización del estado guardado.
 - **Revisión:** ejecución de las herramientas propuestas y aprobación antes de empaquetarlas.
 - **Entrega:** un servidor Node.js por sitio, un fragmento `.mcp.json`, evidencia y un README. Los bundles HTTP no incluyen Playwright; las herramientas de navegador usan el runtime local y Chromium instalado.
-- **WhatsApp:** conector específico de solo lectura para consultar conversaciones y mensajes de una cuenta vinculada. Véase [su documentación](docs/whatsapp.md).
-- **Temu:** conector local de solo lectura para buscar productos y leer precios personalizados con una sesión iniciada. Véase [su documentación](docs/temu.md).
 
 ## Ejemplo del resultado
 
@@ -32,17 +30,16 @@ En el modo HTTP, el navegador se utiliza durante la preparación y el MCP ejecut
 
 ## Qué no está resuelto
 
-- En el explorador y los motores genéricos se bloquean `POST` y los métodos de escritura hasta contar con una autorización humana verificable. Esto también impide consultas legítimas por POST. La confirmación por nonce no es una aprobación humana; los conectores específicos tienen sus propias políticas.
+- En el explorador y los motores genéricos se bloquean `POST` y los métodos de escritura hasta contar con una autorización humana verificable. Esto también impide consultas legítimas por POST. La confirmación por nonce no es una aprobación humana.
 - Un GET no garantiza ausencia de efectos: revisa la operación antes de ejecutarla. Las anotaciones MCP son orientativas, no un límite de seguridad.
 - Una URL por sí sola no garantiza un MCP útil: hacen falta demostraciones y verificación.
 - El motor genérico tiene un alcance limitado de lecturas y descargas; no convierte automáticamente cualquier acción o protocolo.
-- Servicios con protocolos particulares pueden requerir un conector dedicado, como WhatsApp.
-- La interfaz web anterior ya no forma parte del código fuente actual. Los directorios antiguos `dist/` y `artifacts/` no acreditan el estado de esta versión.
+- Servicios con protocolos particulares (WebSocket, estado del dispositivo) quedan fuera del motor y necesitan un conector propio, fuera de este repositorio.
 - Los cambios del sitio y la caducidad de una sesión pueden exigir revisar las recetas o volver a iniciar sesión.
 
 ## Uso local
 
-Requiere Node.js 24, npm y Git (una dependencia del conector de WhatsApp se instala desde un repositorio Git). El paquete **no está publicado en npm**: instálalo desde un checkout o desde un tarball que generes tú.
+Requiere Node.js 24 y npm. El paquete **no está publicado en npm**: instálalo desde un checkout o desde un tarball que generes tú.
 
 ### Instalación desde un checkout
 
@@ -153,7 +150,7 @@ El MCP generado para un sitio se registra por separado usando el fragmento `.mcp
 npm test
 ```
 
-La suite cubre el recorrido completo contra un sitio local de prueba, recetas HTTP y de navegador, HTML, descargas, sesiones, controles de exploración, empaquetado y el conector WhatsApp sin vincular una cuenta real.
+La suite cubre el recorrido completo contra un sitio local de prueba, recetas HTTP y de navegador, HTML, descargas, sesiones, controles de exploración, empaquetado, reintentos y detección de captchas.
 
 La suite vive en `test/` y no viaja en el tarball: para ejecutarla usa el checkout. Desde un tarball, la verificación disponible es `--help`, la sonda de `skills/anyweb/scripts/mcp-probe.mjs` y un laboratorio propio en loopback.
 
@@ -180,6 +177,6 @@ Las reglas de redirección siguen el [estándar Fetch](https://fetch.spec.whatwg
 
 El producto se llama **AnyWeb MCP**, el paquete npm `@akimibks/anyweb` y el ejecutable principal `anyweb`. Se conserva `web2api` como alias. Puedes usar siempre `node src/cli.mjs` sin instalar el ejecutable globalmente.
 
-Para conservar sesiones y configuraciones, permanecen las rutas `~/.web2api`, `~/Downloads/web2api` y las variables `WEB2API_*`. No se migran ni borran datos. Los servidores nuevos se registran como `anyweb-<sitio>` y `anyweb-whatsapp`; si sustituyes un registro antiguo, reemplaza su entrada en tu cliente para evitar herramientas duplicadas. Los bundles ya generados conservan su nombre hasta que los regeneres.
+Para conservar sesiones y configuraciones, permanecen las rutas `~/.web2api`, `~/Downloads/web2api` y las variables `WEB2API_*`. No se migran ni borran datos. Los servidores nuevos se registran como `anyweb-<sitio>`; si sustituyes un registro antiguo, reemplaza su entrada en tu cliente para evitar herramientas duplicadas. Los bundles ya generados conservan su nombre hasta que los regeneres.
 
 El nombre expresa el objetivo del proyecto, no una garantía de compatibilidad universal. Este cambio local no renombra el repositorio remoto ni publica un paquete en npm.

@@ -62,9 +62,25 @@ Las políticas de navegador antiguas sin reglas de consulta solo permiten petici
 
 Las sesiones se cargan desde el estado guardado localmente con `session login`; cada invocación crea y cierra un contexto nuevo. No se aceptan cabeceras de sesión manuales en este motor ni se enseñan contraseñas mediante acciones de escritura. El estado generado durante una invocación no se persiste. Las aplicaciones dependientes de IndexedDB o perfiles especiales pueden requerir un conector dedicado.
 
-Límites: 32 acciones, 128 rutas revisadas, 200 peticiones y 30 segundos por ejecución después de lanzar Chromium. La creación del navegador tiene su propio timeout de 15 segundos. No hay reintento automático, reparación de selectores ni búsqueda autónoma de la tarea.
+Límites: 32 acciones, 128 rutas revisadas, 200 peticiones y 30 segundos por ejecución después de lanzar Chromium. La creación del navegador tiene su propio timeout de 15 segundos. Si Chromium no arranca, se cae o el sitio responde 429 o 5xx, la ejecución se repite una vez; un captcha o una página de WAF devuelve `CHALLENGE_REQUIRED` sin reintentar. No hay reparación de selectores ni búsqueda autónoma de la tarea.
 
 `package` devuelve `runtime: local_browser_runtime`. Genera un bundle MCP con una instantánea de la receta, pero Playwright permanece externo y se resuelve desde la instalación que lo generó; Chromium se instala aparte. Mover o borrar esa instalación puede romper el bundle de navegador. Los sitios exclusivamente HTTP conservan `runtime: standalone_http`.
+
+## Lo que enseña un conector escrito a mano
+
+El conector de Temu (ahora en Obsession, `packages/temu-anyweb/mcp/`) resolvió a mano cuatro
+problemas que este motor todavía no resuelve de forma general. Son la referencia para las próximas
+capacidades. No están implementadas aquí.
+
+| Problema | Cómo lo resolvió el conector | Qué hace hoy el motor |
+|---|---|---|
+| Sitios que bloquean navegadores automatizados al iniciar sesión | La persona inicia sesión en su Chrome normal, sin automatización, con un perfil aislado (`--user-data-dir`). Las llamadas reutilizan ese perfil en modo headless con `launchPersistentContext` y `channel: 'chrome'`. Así pasan las comprobaciones antibot y se conserva IndexedDB. | `session login` abre Chromium controlado por Playwright, y cada llamada carga un `storageState` en un Chromium nuevo. |
+| Coste de lanzar el navegador en cada llamada | Mantiene un solo contexto vivo entre llamadas y las pone en cola, una a la vez. Solo la primera llamada paga el arranque. | Cada invocación lanza y cierra Chromium, de 1 a 3 s por llamada. |
+| Resultados con markup cambiante | No usa selectores fijos. Toma cada enlace de producto y sube hasta el ancestro que tiene imagen y precio. Saca el título de `aria-label`, `title` o `alt`, y ordena por cuántos términos de la consulta contiene (mínimo 60 %). | La extracción depende de los selectores aprendidos en las demostraciones. |
+| Sesión caducada a mitad de uso | Reconoce el login por la URL o por el encabezado, cierra el contexto y devuelve `LOGIN_REQUIRED` sin reintentar. | Responde `REAUTH_REQUIRED` ante 401/403 o una redirección a login, y `CHALLENGE_REQUIRED` ante un captcha. |
+
+Las dos primeras filas son las que más rinden en un motor general: un perfil real de Chrome como
+tipo de sesión, y un runner que mantiene el contexto abierto mientras el MCP vive.
 
 ## Evidencia reproducible
 

@@ -6,10 +6,6 @@ import { propose } from './commands/propose.mjs';
 import { initSite } from './commands/init.mjs';
 import { review } from './commands/review.mjs';
 import { packageSite } from './commands/package.mjs';
-import * as whatsapp from './connectors/whatsapp/login.mjs';
-import { packageWhatsApp } from './connectors/whatsapp/package.mjs';
-import { packageTemu } from './connectors/temu/package.mjs';
-import { loginTemu } from './connectors/temu/login.mjs';
 
 const program = new Command();
 program.name('anyweb').description('AnyWeb MCP — Websites & web services to MCP').version('1.0.0');
@@ -68,26 +64,6 @@ sessionCommand.command('status').description('Report whether a saved session exi
 sessionCommand.command('clear').description('Delete the saved session')
   .requiredOption('--site <origin>').option('--session <name>', 'session name', 'default')
   .action(options => run(() => session.clear(options)));
-
-const temuCommand = program.command('temu').description('Read-only Temu product connector');
-temuCommand.command('login').description('Log in to Temu in a visible browser and save the local profile')
-  .action(() => run(() => loginTemu()));
-temuCommand.command('package').description('Write the local MCP registration snippet')
-  .action(options => run(() => packageTemu()));
-
-const whatsappCommand = program.command('whatsapp').description('Read-only WhatsApp Web connector');
-whatsappCommand.command('login').description('Pair this computer with WhatsApp by QR')
-  .option('--auth-dir <dir>').option('--timeout <seconds>', 'pairing timeout', '300')
-  .action(options => run(() => whatsapp.login(options)));
-whatsappCommand.command('status').description('Report the pairing and in-memory snapshot')
-  .option('--auth-dir <dir>')
-  .action(options => run(() => whatsapp.status(options)));
-whatsappCommand.command('logout').description('Unlink the device and delete local auth and snapshot')
-  .option('--auth-dir <dir>').option('--yes')
-  .action(options => run(() => whatsapp.logout(options)));
-whatsappCommand.command('package').description('Bundle the connector into a standalone MCP server')
-  .option('--auth-dir <dir>')
-  .action(options => run(() => packageWhatsApp(options)));
 
 program.command('mcp').description('Start the AnyWeb factory MCP server over stdio')
   .action(async () => (await import('./mcp/factory.mjs')).serveFactory());

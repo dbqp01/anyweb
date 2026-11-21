@@ -17,11 +17,8 @@ import { startFixture, products } from './fixtures/server.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-// Windows Node here cannot spawn bare git from PATH, and npm needs git for Baileys' git dependency.
-const git = process.platform === 'win32' ? join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'cmd', 'git.exe') : undefined;
 const npmEnv = {
   ...process.env,
-  ...(git && existsSync(git) ? { npm_config_git: git } : {}),
   npm_config_audit: 'false',
   npm_config_fund: 'false',
   npm_config_update_notifier: 'false',
@@ -57,7 +54,7 @@ test('npm pack installs a portable CLI that builds and serves MCP servers withou
   for (const required of ['package.json', 'README.md', 'AGENTS.md', 'skills/anyweb/SKILL.md', 'skills/anyweb/references/security.md', 'docs/method.md', 'examples/product-lookup.json', 'src/cli.mjs', 'src/commands/package.mjs', 'src/mcp/browser-entry.mjs']) {
     assert.ok(files.includes(required), `${required} must ship in the tarball`);
   }
-  for (const forbidden of ['test/', 'experiments/', '.local/', '.env', 'docs/plan/', 'docs/evidence/']) {
+  for (const forbidden of ['test/', '.local/', '.env']) {
     assert.equal(files.some(file => file === forbidden || file.startsWith(forbidden)), false, `${forbidden} must not ship in the tarball`);
   }
 

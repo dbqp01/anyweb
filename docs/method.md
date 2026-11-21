@@ -4,13 +4,13 @@
 
 AnyWeb MCP es un taller local para construir integraciones curadas. El entregable es una operación útil, reproducible y comprobada desde un cliente MCP, con alcance y autenticación explícitos. Una respuesta HTTP 200 o un bundle que arranca no demuestran que la operación haga lo que el usuario necesita.
 
-Primera versión: lecturas y descargas para uso personal/local. Hay recetas HTTP y un modo explícito de [flujos de navegador aprendidos](browser-workflows.md) para lecturas acotadas; WhatsApp tiene un conector propio. No existe todavía un importador general de OpenAPI ni un planificador autónomo.
+Primera versión: lecturas y descargas para uso personal/local. Hay recetas HTTP y un modo explícito de [flujos de navegador aprendidos](browser-workflows.md) para lecturas acotadas. No existe todavía un importador general de OpenAPI ni un planificador autónomo.
 
 ## Elegir una vía por servicio
 
 1. Buscar una API documentada y comprobar autenticación, permisos, coste y operaciones disponibles. Usarla mediante un conector específico cuando el compilador actual no represente su contrato.
 2. Si no existe una API adecuada, observar operaciones permitidas con el navegador y comprobar si se reproducen por HTTP. Usar el compilador solo cuando entradas, dependencias y resultados encajen en sus capacidades.
-3. Si el servicio depende de WebSocket, estado del dispositivo o protocolos especiales, evaluar un conector específico. WhatsApp ya sigue esta vía.
+3. Si el servicio depende de WebSocket, estado del dispositivo o protocolos especiales, evaluar un conector específico, fuera del motor.
 4. Si requiere interacción visual, evaluar el modo `execution: browser`: acciones reproducibles, extracción DOM, peticiones GET revisadas y comparación de entrenamiento/evaluación. Si requiere protocolos o efectos fuera de sus límites, registrar el caso como no soportado. Nunca cambiar de HTTP a navegador silenciosamente.
 
 La elección se hace por operación, no solo por nombre de sitio. No relajar controles genéricos para que una demo particular pase. Un parámetro llamado `token` no demuestra por sí mismo que sea una credencial ni que sea público: su tratamiento requiere evidencia del protocolo.

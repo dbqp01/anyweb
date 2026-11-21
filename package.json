@@ -1,9 +1,9 @@
 {
-  "name": "anyweb-mcp",
+  "name": "@akimibks/anyweb",
   "description": "AnyWeb MCP — Websites & web services to MCP",
-  "repository": { "type": "git", "url": "https://github.com/dbqp01/Web2Agent.git" },
-  "homepage": "https://github.com/dbqp01/Web2Agent#readme",
-  "bugs": { "url": "https://github.com/dbqp01/Web2Agent/issues" },
+  "repository": { "type": "git", "url": "https://github.com/dbqp01/anyweb.git" },
+  "homepage": "https://github.com/dbqp01/anyweb#readme",
+  "bugs": { "url": "https://github.com/dbqp01/anyweb/issues" },
   "keywords": ["mcp", "web", "browser", "agents"],
   "version": "1.0.0",
   "private": true,

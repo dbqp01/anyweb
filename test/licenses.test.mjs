@@ -101,7 +101,7 @@ test('HTTP package ships the complete licenses of every bundled dependency', { t
   const notices = await readFile(result.notices, 'utf8');
 
   assert.match(notices, /is not a license for AnyWeb MCP itself/);
-  assert.doesNotMatch(notices, /^## package: anyweb-mcp /m);
+  assert.doesNotMatch(notices, /^## package: @akimibks\/anyweb /m);
   await assertNoticesMatchInstall(notices);
 
   for (const name of ['cheerio', '@modelcontextprotocol/server', 'zod']) {
@@ -131,7 +131,7 @@ test('WhatsApp package ships the complete licenses of every bundled dependency',
 
   // Packages that ship no license file must not receive an invented attribution.
   assert.match(notices, /^## package: agent-base 6\.0\.2 — MIT\n\nThe installed package ships no license text file\. Declared license: MIT\. Upstream: /m);
-  assert.doesNotMatch(notices, /^## package: anyweb-mcp /m);
+  assert.doesNotMatch(notices, /^## package: @akimibks\/anyweb /m);
 
   const readme = await readFile(result.readme, 'utf8');
   assert.ok(readme.includes('THIRD_PARTY_NOTICES.txt'));

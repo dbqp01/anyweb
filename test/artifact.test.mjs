@@ -91,7 +91,7 @@ test('upstream sends an identifying User-Agent', async t => {
   const fixture = await startFixture();
   t.after(() => fixture.close());
   const body = await upstreamJson(`${fixture.origin}/api/echo`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  assert.match(body.user_agent, /^anyweb-mcp\//);
+  assert.match(body.user_agent, /^anyweb\//);
 });
 
 test('recipe v4 compiles and runs a binary download', async t => {

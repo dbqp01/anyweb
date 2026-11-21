@@ -58,9 +58,9 @@ Genera el paquete en el checkout e instálalo en un directorio de trabajo aparte
 
 ```bash
 cd anyweb
-npm pack --pack-destination ..   # imprime el nombre, p. ej. anyweb-mcp-1.0.0.tgz
+npm pack --pack-destination ..   # imprime el nombre, p. ej. akimibks-anyweb-1.0.0.tgz
 mkdir ../anyweb-work && cd ../anyweb-work
-npm install ../anyweb-mcp-1.0.0.tgz
+npm install ../akimibks-anyweb-1.0.0.tgz
 ```
 
 - Usa `npm install`, no `npm ci`: el tarball no incluye `package-lock.json`.
@@ -141,7 +141,7 @@ Para un cliente compatible con configuración `mcpServers`, añade esta entrada 
 }
 ```
 
-En Windows utiliza una ruta como `C:/ruta/anyweb/src/cli.mjs`; si instalaste el tarball, `C:/ruta/anyweb-work/node_modules/anyweb-mcp/src/cli.mjs`. El cliente debe poder encontrar `node`; si no, usa también la ruta absoluta al ejecutable de Node. Consulta la documentación de tu cliente para la ubicación de su configuración y reinicia o recarga su lista de MCP. El comando `node src/cli.mjs mcp` usa **stdio**: lo inicia el cliente MCP, no una terminal interactiva.
+En Windows utiliza una ruta como `C:/ruta/anyweb/src/cli.mjs`; si instalaste el tarball, `C:/ruta/anyweb-work/node_modules/@akimibks/anyweb/src/cli.mjs`. El cliente debe poder encontrar `node`; si no, usa también la ruta absoluta al ejecutable de Node. Consulta la documentación de tu cliente para la ubicación de su configuración y reinicia o recarga su lista de MCP. El comando `node src/cli.mjs mcp` usa **stdio**: lo inicia el cliente MCP, no una terminal interactiva.
 
 Para Hermes, la CLI admite `hermes mcp add anyweb-factory --command node --args /ruta/absoluta/anyweb/src/cli.mjs mcp` (`--args` debe ir al final), y `hermes mcp test anyweb-factory` comprueba la conexión. La disponibilidad en una sesión abierta depende del cliente y puede requerir recargarla.
 
@@ -178,7 +178,7 @@ Las reglas de redirección siguen el [estándar Fetch](https://fetch.spec.whatwg
 
 ## Cambio de nombre y compatibilidad
 
-El producto se llama **AnyWeb MCP**, el paquete local `anyweb-mcp` y el ejecutable principal `anyweb`. Se conserva `web2api` como alias. Puedes usar siempre `node src/cli.mjs` sin instalar el ejecutable globalmente.
+El producto se llama **AnyWeb MCP**, el paquete npm `@akimibks/anyweb` y el ejecutable principal `anyweb`. Se conserva `web2api` como alias. Puedes usar siempre `node src/cli.mjs` sin instalar el ejecutable globalmente.
 
 Para conservar sesiones y configuraciones, permanecen las rutas `~/.web2api`, `~/Downloads/web2api` y las variables `WEB2API_*`. No se migran ni borran datos. Los servidores nuevos se registran como `anyweb-<sitio>` y `anyweb-whatsapp`; si sustituyes un registro antiguo, reemplaza su entrada en tu cliente para evitar herramientas duplicadas. Los bundles ya generados conservan su nombre hasta que los regeneres.
 

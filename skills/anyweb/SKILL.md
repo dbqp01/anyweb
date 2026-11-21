@@ -65,7 +65,7 @@ El paquete **no está publicado en npm**. Dos orígenes válidos:
   registro público: no hay versión publicada.
 
 Confirma que el origen contiene `package.json` y `src/cli.mjs` (en un tarball, dentro de
-`node_modules/anyweb-mcp/`); en el checkout, además, `package-lock.json`. En una instalación desde
+`node_modules/@akimibks/anyweb/`); en el checkout, además, `package-lock.json`. En una instalación desde
 tarball, el directorio de trabajo es el que contiene `node_modules/` y la CLI se invoca con
 `npx --no-install anyweb`.
 
@@ -101,7 +101,7 @@ Desde el directorio donde instalaste el tarball:
 node --version
 npm --version
 git --version
-node -e "const fs=require('node:fs'); for (const f of ['package.json','node_modules/anyweb-mcp/src/cli.mjs','node_modules/anyweb-mcp/skills/anyweb/SKILL.md']) if(!fs.existsSync(f)) { console.error('missing '+f); process.exit(1); } console.log('tarball install ok')"
+node -e "const fs=require('node:fs'); for (const f of ['package.json','node_modules/@akimibks/anyweb/src/cli.mjs','node_modules/@akimibks/anyweb/skills/anyweb/SKILL.md']) if(!fs.existsSync(f)) { console.error('missing '+f); process.exit(1); } console.log('tarball install ok')"
 ```
 
 Esperado: Node `v24.x`, npm y git disponibles, y `checkout ok` o `tarball install ok`. La CLI
@@ -132,7 +132,7 @@ npm ci
 Tarball, en el directorio de trabajo que contiene el `.tgz`:
 
 ```bash
-npm install <ruta>/anyweb-mcp-1.0.0.tgz
+npm install <ruta>/akimibks-anyweb-1.0.0.tgz
 ```
 
 - `npm ci` solo en el checkout: exige `package-lock.json`, que el tarball no incluye. En el tarball,
@@ -260,7 +260,7 @@ node src/cli.mjs init --file <ruta-absoluta-al-json>
 
 Salida esperada: `site`, `file`, `tools`, `next: "explore start"`. Si responde `SITE_ALREADY_EXISTS`,
 la declaración existente se preservó: inspecciónala y no la sobrescribas ni la borres sin permiso.
-Desde un tarball, el ejemplo del paquete está en `node_modules/anyweb-mcp/examples/product-lookup.json`.
+Desde un tarball, el ejemplo del paquete está en `node_modules/@akimibks/anyweb/examples/product-lookup.json`.
 
 No inicies `explore` antes de `init`: sin declaración, `propose` responde `SITE_NOT_FOUND` y las
 marcas de navegador no registran `execution`/`extract`.
@@ -371,7 +371,7 @@ node skills/anyweb/scripts/mcp-probe.mjs <ruta-al-bundle> <tool> '{"product_name
 ```
 
 La sonda lista tools y, si se lo pides, llama una. Debe devolver `tools` y `call` sin `isError`.
-Instalado desde un tarball, la sonda está en `node_modules/anyweb-mcp/skills/anyweb/scripts/mcp-probe.mjs`
+Instalado desde un tarball, la sonda está en `node_modules/@akimibks/anyweb/skills/anyweb/scripts/mcp-probe.mjs`
 y resuelve sus dependencias desde esa instalación.
 Después, comprueba el **significado** del resultado contra una fuente independiente (la página, una
 consulta manual o un segundo sistema). Un HTTP 200 o una llamada que "no falla" no demuestran que el
@@ -390,7 +390,7 @@ Expone `init_site`, `explore_start/open/click/type/snapshot/requests/status/stop
 revisión, aprobación, empaquetado ni ejecuta shell. Para esas fases usa la CLI. No lo ejecutes en
 primer plano esperando salida: un cliente MCP lo lanza por stdio. Los mismos límites aplican: la
 exploración es GET-only y `explore confirm` no existe en este servidor. Regístralo con `node <ruta-absoluta>/src/cli.mjs mcp` (en tarball,
-`node_modules/anyweb-mcp/src/cli.mjs`) y el `WEB2API_HOME` correcto. Su prueba es
+`node_modules/@akimibks/anyweb/src/cli.mjs`) y el `WEB2API_HOME` correcto. Su prueba es
 `node --test test/factory-mcp.test.mjs`.
 
 ## Fase 6 — Evidencia y reporte

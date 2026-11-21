@@ -67,7 +67,7 @@ test('npm pack installs a portable CLI that builds and serves MCP servers withou
   });
   assert.equal(installed.exitCode, 0, installed.stderr);
 
-  const pkgRoot = join(app, 'node_modules', 'anyweb-mcp');
+  const pkgRoot = join(app, 'node_modules', '@akimibks', 'anyweb');
   const installedManifest = JSON.parse(await readFile(join(pkgRoot, 'package.json'), 'utf8'));
   assert.deepEqual(installedManifest.bin, { anyweb: 'src/cli.mjs', web2api: 'src/cli.mjs' });
   assert.ok(existsSync(join(pkgRoot, 'src', 'cli.mjs')), 'cli must exist in the isolated install');

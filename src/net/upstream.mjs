@@ -103,7 +103,7 @@ async function requestOnce(url, init, binary, limit, { redirects = 0, cookies = 
     init = { ...init, headers: { ...init.headers } };
     for (let hop = 0; ; hop++) {
       // Some public APIs reject the default Node UA (Wikimedia answers 429).
-      const headers = { 'User-Agent': 'anyweb-mcp/1.0', ...init.headers };
+      const headers = { 'User-Agent': 'anyweb/1.0', ...init.headers };
       if (!Object.keys(headers).some(header => header.toLowerCase() === 'cookie')) {
         const cookie = cookieHeader(cookies, current);
         if (cookie) headers.cookie = cookie;

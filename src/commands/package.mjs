@@ -6,6 +6,7 @@ import { build } from 'esbuild';
 import { WorkflowError } from '../artifact/errors.mjs';
 import { assertReviewed } from '../artifact/review-integrity.mjs';
 import { writeNotices } from '../artifact/licenses.mjs';
+import { buildListing } from '../artifact/listing.mjs';
 import { home, loadSite, siteDir } from '../artifact/site.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -56,6 +57,7 @@ export async function packageSite({ site: target }, env = process.env) {
   const evidenceFile = join(dist, 'evidence.json');
   const readmeFile = join(dist, 'README.md');
   const noticesFile = join(dist, 'THIRD_PARTY_NOTICES.txt');
+  const listingFile = join(dist, 'listing.json');
   await mkdir(dist, { recursive: true });
 
   const browser = site.tools.some(tool => tool.recipe.execution === 'browser');
@@ -117,8 +119,12 @@ export const chromium = new Proxy({}, { get: (_, method) => (...args) => import(
       verification: tool.verification.status, reviewed_at: tool.reviewed_at,
     })),
   };
-  await writeFile(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`);
+  const evidenceText = `${JSON.stringify(evidence, null, 2)}\n`;
+  await writeFile(evidenceFile, evidenceText);
+  // A missing or unreadable listing only means no publisher fields yet.
+  const previous = await readFile(listingFile, 'utf8').then(JSON.parse, () => null);
+  await writeFile(listingFile, `${JSON.stringify(buildListing({ site, evidence, evidenceText, previous }), null, 2)}\n`);
   await writeFile(readmeFile, readme(site, bundle, snippetFile, browser, notices));
 
-  return { site: origin, runtime: evidence.runtime, bundle, snippet: snippetFile, evidence: evidenceFile, readme: readmeFile, notices, bytes: evidence.bundle.bytes, tools: site.tools.map(tool => tool.id) };
+  return { site: origin, runtime: evidence.runtime, bundle, snippet: snippetFile, evidence: evidenceFile, listing: listingFile, readme: readmeFile, notices, bytes: evidence.bundle.bytes, tools: site.tools.map(tool => tool.id) };
 }

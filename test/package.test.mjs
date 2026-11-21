@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -69,6 +69,16 @@ test('package bundles approved tools into a standalone MCP server', { timeout: 1
   assert.deepEqual(snippet.mcpServers['anyweb-fixture'], { command: process.execPath, args: [payload.bundle], env: { WEB2API_HOME: home } });
   const evidence = JSON.parse(await readFile(payload.evidence, 'utf8'));
   assert.equal(JSON.stringify(evidence).includes('Laptop'), false);
+  const listing = JSON.parse(await readFile(payload.listing, 'utf8'));
+  assert.equal(listing.id, 'anyweb-fixture');
+  assert.equal(listing.integrity.bundle_sha256, createHash('sha256').update(code).digest('hex'));
+  assert.equal(listing.integrity.evidence_sha256, createHash('sha256').update(await readFile(payload.evidence, 'utf8')).digest('hex'));
+  assert.deepEqual(listing.tools.map(tool => tool.id).sort(), ['product_detail', 'product_file']);
+  assert.equal(JSON.stringify(listing).includes('Laptop'), false, 'the listing must not leak demonstration inputs');
+  // Publisher fields typed by hand survive a repackage.
+  await writeFile(payload.listing, JSON.stringify({ ...listing, publisher: { ...listing.publisher, author: 'Fixture Labs' } }));
+  assert.equal((await cli(['package', '--site', fixture.origin], env)).exitCode, 0);
+  assert.equal(JSON.parse(await readFile(payload.listing, 'utf8')).publisher.author, 'Fixture Labs');
   await access(payload.bundle);
 
   const client = new Client({ name: 'package-test', version: '1.0.0' });
